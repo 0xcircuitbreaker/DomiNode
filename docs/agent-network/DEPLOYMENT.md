@@ -331,10 +331,13 @@ home IP, and classes the node `masked`. Consequences:
 - Do not declare it `residential` at registration: a declared class above the
   verified one opens an admin review flag.
 - Split tunnelling (tunnel to the gateway direct, target traffic through the
-  VPN, or the reverse) is usually detected by the canary probe: a same-family
-  mismatch between the tunnel IP and the probed egress IP is tamper evidence
-  and quarantines the node; an other-family egress is classified and the more
-  conservative class wins.
+  VPN, or the reverse) is usually detected by the canary probe: whenever the
+  probed egress IP differs from the tunnel IP (another family, or another
+  /24 / IPv6 /64) the egress IP is classified and the more conservative class
+  wins, and an egress in another country blocks the node and opens a review
+  flag. A different address alone is not tamper evidence (CGNAT pools,
+  multi-WAN routers and IPv6 temporary addresses do this honestly); only a
+  forged plaintext echo is, and two such verdicts quarantine the node.
 - Check your VPN provider's terms. Many consumer VPN and WARP terms forbid
   reselling bandwidth or running a proxy for third parties; that is between
   you and the provider.

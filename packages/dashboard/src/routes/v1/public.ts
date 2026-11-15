@@ -114,14 +114,18 @@ export interface NetworkStats {
 export async function getNetworkStats(): Promise<NetworkStats> {
   const now = Date.now();
   if (statsCache && now - statsCache.at <= CACHE_TTL_MS) return statsCache.value as NetworkStats;
-  const r = await query<{ country: string | null; ip_class: string | null; operator_run: boolean | null; n: string }>(
-    `SELECT country, ip_class, operator_run, COUNT(*)::text AS n FROM nodes
-     WHERE status = 'active' AND last_seen_at > now() - interval '5 minutes'
-     GROUP BY country, ip_class, operator_run`,
+  // Online = fresh gateway slot heartbeat (not nodes.last_seen_at, which only
+  // changes on connect/disconnect). Owner ids stay in memory: k-anonymity
+  // counts distinct owners, never published.
+  const r = await query<{ country: string | null; ip_class: string | null; operator_run: boolean | null; owner_user_id: string; cnt: string }>(
+    `SELECT n.country, n.ip_class, n.operator_run, n.owner_user_id, COUNT(*)::text AS cnt FROM nodes n
+     WHERE n.status = 'active' AND ${networkStatusRepo.NODE_ONLINE_SQL}
+     GROUP BY n.country, n.ip_class, n.operator_run, n.owner_user_id`,
   );
   // Paid traffic in the last 24h, seed (operator-run) vs community. Aggregate only.
-  const t = await query<{ operator_run: boolean | null; bytes: string | null; nodes?: string | null }>(
-    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes, COUNT(DISTINCT rc.node_id)::text AS nodes
+  const t = await query<{ operator_run: boolean | null; bytes: string | null; nodes?: string | null; owners?: string | null }>(
+    `SELECT n.operator_run, SUM(rc.bytes_gateway)::text AS bytes, COUNT(DISTINCT rc.node_id)::text AS nodes,
+            COUNT(DISTINCT n.owner_user_id)::text AS owners
      FROM relay_charges rc JOIN nodes n ON n.id = rc.node_id
      WHERE rc.created_at > now() - interval '24 hours' AND rc.gross_musd > 0
      GROUP BY n.operator_run`,
@@ -129,38 +133,56 @@ export async function getNetworkStats(): Promise<NetworkStats> {
   const seed = { online: 0, paidBytes24h: "0" };
   const community = { online: 0, paidBytes24h: "0" };
   let communityPaidNodes = 0;
+  let communityPaidOwners = 0;
   for (const row of t.rows ?? []) {
     const b = /^\d{1,20}$/.test(row.bytes ?? "") ? (row.bytes as string) : "0";
     if (row.operator_run) seed.paidBytes24h = b;
-    else { community.paidBytes24h = b; communityPaidNodes = parseInt(row.nodes ?? "0", 10) || 0; }
+    else {
+      community.paidBytes24h = b;
+      communityPaidNodes = parseInt(row.nodes ?? "0", 10) || 0;
+      communityPaidOwners = parseInt(row.owners ?? "0", 10) || 0;
+    }
   }
   let total = 0;
   let other = 0;
   const byClass: Record<string, number> = {};
   const byCountry: Record<string, number> = {};
+  const communityOwners = new Set<string>();
+  const classOwners = new Map<string, Set<string>>();
+  const countryOwners = new Map<string, Set<string>>();
+  const addOwner = (m: Map<string, Set<string>>, key: string, owner: string) => {
+    let set = m.get(key);
+    if (!set) { set = new Set(); m.set(key, set); }
+    set.add(owner);
+  };
   for (const row of r.rows) {
-    const n = parseInt(row.n, 10);
+    const n = parseInt(row.cnt, 10);
     if (!Number.isFinite(n) || n <= 0) continue;
     total += n;
-    if (row.operator_run) seed.online += n; else community.online += n;
+    if (row.operator_run) seed.online += n;
+    else { community.online += n; communityOwners.add(row.owner_user_id); }
     const cls = row.ip_class ?? "unknown";
     byClass[cls] = (byClass[cls] ?? 0) + n;
+    addOwner(classOwners, cls, row.owner_user_id);
     const c = row.country && !BLOCKED_COUNTRY_CODES.has(row.country) ? row.country : null;
-    if (c) byCountry[c] = (byCountry[c] ?? 0) + n;
+    if (c) { byCountry[c] = (byCountry[c] ?? 0) + n; addOwner(countryOwners, c, row.owner_user_id); }
     else other += n;
   }
   const countriesAvailable = Object.keys(byCountry).length;
   const countries: Array<{ country: string; online: number }> = [];
   for (const [country, online] of Object.entries(byCountry)) {
-    if (online >= MIN_GROUP) countries.push({ country, online });
+    if (online >= MIN_GROUP && (countryOwners.get(country)?.size ?? 0) >= MIN_GROUP) countries.push({ country, online });
     else other += online;
   }
+  const byClassOwners: Record<string, number> = {};
+  for (const [cls, set] of classOwners) byClassOwners[cls] = set.size;
   countries.sort((a, b) => b.online - a.online || a.country.localeCompare(b.country));
   const paidTotal = (BigInt(seed.paidBytes24h) + BigInt(community.paidBytes24h)).toString();
   const k = networkStatusRepo.kAnonymize({
     onlineNodes: total, seedOnline: seed.online, communityOnline: community.online,
     paidBytes24h: paidTotal, seedPaidBytes24h: seed.paidBytes24h, communityPaidBytes24h: community.paidBytes24h, byClass,
-    communityPaidNodes24h: communityPaidNodes,
+    communityPaidNodes24h: communityPaidNodes, communityOwnersOnline: communityOwners.size,
+    communityPaidOwners24h: communityPaidOwners, byClassOwners,
   }, MIN_GROUP);
   const hideAll = k.suppressed.includes("onlineNodes");
   if (hideAll) k.suppressed.push("byCountry", "countriesAvailable");

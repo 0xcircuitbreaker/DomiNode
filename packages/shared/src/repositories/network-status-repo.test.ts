@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../db.js", () => ({ query: vi.fn() }));
-import { kAnonymize, availabilityBps, getGatewayLiveness, recordGatewayHeartbeat, purgeGatewayHeartbeats } from "./network-status-repo.js";
+import { kAnonymize, addUnmetDemand, availabilityBps, getGatewayLiveness, recordGatewayHeartbeat, purgeGatewayHeartbeats } from "./network-status-repo.js";
 import { query } from "../db.js";
 const q = vi.mocked(query);
 
-const base = { onlineNodes: 0, seedOnline: 0, communityOnline: 0, paidBytes24h: "0", seedPaidBytes24h: "0", communityPaidBytes24h: "0", byClass: {} };
+const base = { onlineNodes: 0, seedOnline: 0, communityOnline: 0, paidBytes24h: "0", seedPaidBytes24h: "0", communityPaidBytes24h: "0", byClass: {}, communityOwnersOnline: 3, communityPaidOwners24h: 3 };
 
 describe("kAnonymize", () => {
   it("hides the split and totals when one community node is alone", () => {
@@ -48,9 +48,34 @@ describe("kAnonymize", () => {
   it("publishes everything once each group has at least 3 nodes", () => {
     const x = { ...base, onlineNodes: 7, seedOnline: 4, communityOnline: 3, paidBytes24h: "10", seedPaidBytes24h: "6", communityPaidBytes24h: "4", communityPaidNodes24h: 3, byClass: { dc: 4, residential: 3 } };
     const r = kAnonymize(x);
-    const { communityPaidNodes24h: _n, ...pub } = x;
+    const { communityPaidNodes24h: _n, communityOwnersOnline: _o, communityPaidOwners24h: _p, ...pub } = x;
     expect(r).toMatchObject(pub);
     expect(r.suppressed).toEqual([]);
+  });
+});
+
+describe("kAnonymize (distinct owners)", () => {
+  const crowd = { ...base, onlineNodes: 5, seedOnline: 2, communityOnline: 3, paidBytes24h: "6000000000", seedPaidBytes24h: "0", communityPaidBytes24h: "6000000000", communityPaidNodes24h: 3, byClass: { residential: 3, dc: 2 } };
+  it("one owner with three online, paid community nodes publishes nothing", () => {
+    const r = kAnonymize({ ...crowd, communityOwnersOnline: 1, communityPaidOwners24h: 1 });
+    expect(JSON.stringify(r)).not.toContain("6000000000");
+    expect(r.communityOnline).toBe(0);
+    expect(r.byClass).toEqual({});
+  });
+  it("k online owners but one paid owner hides only the paid figures", () => {
+    const r = kAnonymize({ ...crowd, communityOwnersOnline: 3, communityPaidOwners24h: 1 });
+    expect(r.communityOnline).toBe(3);
+    expect(r.communityPaidBytes24h).toBe("0");
+  });
+  it("unknown owner counts (pre-feature snapshot) count as below k", () => {
+    const r = kAnonymize({ ...crowd, communityOwnersOnline: null, communityPaidOwners24h: null });
+    expect(r.onlineNodes).toBe(0);
+  });
+  it("a class held by fewer than k owners is dropped, not folded", () => {
+    const r = kAnonymize({ ...crowd, communityOwnersOnline: 3, communityPaidOwners24h: 3, byClass: { residential: 3, dc: 4 }, byClassOwners: { residential: 3, dc: 1 } });
+    expect(r.byClass).toEqual({ residential: 3 });
+    expect(r.suppressed).toContain("byClass");
+    expect(r).not.toHaveProperty("byClassOwners");
   });
 });
 
@@ -85,5 +110,21 @@ describe("gateway liveness", () => {
     expect(sql).toContain("COALESCE(e.first, e.e)");
     q.mockResolvedValue({ rows: [] } as never);
     expect(await getGatewayLiveness()).toEqual({ instancesOnline: 0, lastHeartbeatAt: null, availability24hBps: null, availability7dBps: null });
+  });
+});
+
+describe("addUnmetDemand", () => {
+  it("writes class-masked demand (every exit class) and drops unknown classes", async () => {
+    q.mockClear();
+    q.mockResolvedValueOnce({ rows: [], rowCount: 2 } as never);
+    const hour = new Date("2026-11-14T10:00:00Z");
+    const n = await addUnmetDemand([
+      { hour, country: "US", ipClass: "masked", requests: 4 },
+      { hour, country: "", ipClass: "", requests: 1 },
+      { hour, country: "US", ipClass: "bogus", requests: 1 },
+    ]);
+    expect(n).toBe(2);
+    const params = q.mock.calls[0]![1] as unknown[];
+    expect(params[2]).toEqual(["masked", ""]);
   });
 });

@@ -2357,3 +2357,18 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS payer_origin BOOLEAN NOT NULL DEFAULT
 
 -- Admin resolution of MPP owed funds (refund_due / excess_musd), see owed-funds-repo.
 ALTER TABLE mpp_transactions ADD COLUMN IF NOT EXISTS owed_resolved_at TIMESTAMPTZ;
+
+-- Probe egress in another (or a sanctioned) country than the tunnel IP: the
+-- node is unselectable until a matching probe clears it (survives reconnects).
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS egress_blocked_at TIMESTAMPTZ;
+
+-- Public stats k-anonymity counts distinct owners, not nodes (one owner may
+-- run many nodes). NULL on older rows counts as below k.
+ALTER TABLE network_stats_snapshots ADD COLUMN IF NOT EXISTS community_owners_online INTEGER;
+ALTER TABLE network_stats_snapshots ADD COLUMN IF NOT EXISTS community_paid_owners_24h INTEGER;
+ALTER TABLE network_stats_snapshots ADD COLUMN IF NOT EXISTS by_class_owners JSONB;
+DO $$ BEGIN
+  ALTER TABLE network_stats_snapshots ADD CONSTRAINT chk_nss_community_owners
+    CHECK ((community_owners_online IS NULL OR community_owners_online BETWEEN 0 AND 100000000)
+       AND (community_paid_owners_24h IS NULL OR community_paid_owners_24h BETWEEN 0 AND 100000000));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

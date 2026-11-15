@@ -42,7 +42,7 @@ vi.mock("@dominusnode/shared", () => ({
 }));
 vi.mock("./balance-check.js", () => ({ invalidateBalanceCache: vi.fn(), invalidateTeamBalanceCache: vi.fn() }));
 
-import { startSession, endSession, configureSessionRecovery, configureSettledHook, heartbeatActiveSessions, recoverOrphanedSessions, getActiveSessionCount } from "./session-manager.js";
+import { startSession, endSession, configureSessionRecovery, configureSettledHook, heartbeatActiveSessions, fenceOnHeartbeatLoss, registerSessionDestroy, recoverOrphanedSessions, getActiveSessionCount } from "./session-manager.js";
 
 const counter = (i = 0, o = 0) => ({ bytesIn: i, bytesOut: o, maxBytes: 0, onLimitExceeded: null });
 
@@ -84,6 +84,37 @@ describe("session crash/restart recovery", () => {
     await heartbeatActiveSessions();
     expect(mockHeartbeat).toHaveBeenCalledWith("gw-self", [{ sessionId: "sess-c", bytesIn: 1234, bytesOut: 99 }]);
     await endSession("sess-c");
+  });
+
+  it("fences: a session the heartbeat no longer updates (settled by another instance) is ended and destroyed", async () => {
+    mockReserveBalance.mockResolvedValueOnce("w1");
+    mockCreateSession.mockResolvedValueOnce({ id: "sess-f" });
+    await startSession("user-f", "example.com", counter(), 0, RELAY);
+    const destroy = vi.fn();
+    registerSessionDestroy("sess-f", destroy);
+    mockHeartbeat.mockResolvedValueOnce(["sess-f"]);
+    await heartbeatActiveSessions();
+    expect(getActiveSessionCount()).toBe(1);
+    mockHeartbeat.mockResolvedValueOnce([]);
+    await heartbeatActiveSessions(Date.now() + 10_000); // too young to fence
+    expect(getActiveSessionCount()).toBe(1);
+    mockHeartbeat.mockResolvedValueOnce([]);
+    await heartbeatActiveSessions(Date.now() + 60_000);
+    expect(getActiveSessionCount()).toBe(0);
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it("ends local sessions when the heartbeat has failed for longer than the margin", async () => {
+    mockReserveBalance.mockResolvedValueOnce("w1");
+    mockCreateSession.mockResolvedValueOnce({ id: "sess-g" });
+    await startSession("user-g", "example.com", counter(), 0, RELAY);
+    const t0 = Date.now();
+    mockHeartbeat.mockResolvedValueOnce(["sess-g"]);
+    await heartbeatActiveSessions(t0);
+    expect(await fenceOnHeartbeatLoss(75_000, t0 + 30_000)).toBe(0);
+    expect(getActiveSessionCount()).toBe(1);
+    expect(await fenceOnHeartbeatLoss(75_000, t0 + 80_000)).toBe(1);
+    expect(getActiveSessionCount()).toBe(0);
   });
 
   it("settles orphaned sessions (refunding the rest of the reservation) instead of marking them error", async () => {

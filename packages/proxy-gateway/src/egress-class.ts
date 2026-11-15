@@ -274,6 +274,13 @@ export interface VerifiableNode {
   probePending?: boolean;
   /** Country of the tunnel peer IP (what the node is sold under). */
   country?: string | null;
+  /**
+   * Probe egress was in another country than the tunnel IP, or in a sanctioned
+   * country. The selector serves nothing through the node while set; only a
+   * later matching probe on the same connection clears it. Persisted
+   * (nodes.egress_blocked_at) so a reconnect starts blocked.
+   */
+  egressBlocked?: boolean;
 }
 
 export interface EgressVerifierDeps {
@@ -284,10 +291,12 @@ export interface EgressVerifierDeps {
    * egress_mismatch flag when it is below the declared or connect-time class
    * (nodeRepo.recordVerifiedClass).
    */
-  record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null; forceFlag?: boolean }): Promise<unknown>;
+  record(nodeId: string, cls: NodeIpClass, opts: { probeClass: NodeIpClass; connectClass: NodeIpClass | null; forceFlag?: boolean; egressBlocked?: boolean }): Promise<unknown>;
+  /** Policy-sanctioned countries (in addition to the built-in OFAC list). */
+  isSanctionedCountry?: (cc: string) => boolean;
   /**
    * Quarantine a node whose probed egress is in a sanctioned (OFAC) country.
-   * Without it the node is still made unselectable ("unknown", flagged).
+   * Without it the node is still made unselectable (egressBlocked, flagged).
    */
   quarantine?: (nodeId: string, reason: string) => Promise<unknown>;
   /** Called on a country mismatch or sanctioned egress: end every in-flight session on the node. */
@@ -320,12 +329,22 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
     // probe egress elsewhere (or in a sanctioned country) must not serve.
     const egressCc = verdict.country ? verdict.country.toUpperCase() : null;
     const liveCc = live.country ? live.country.toUpperCase() : null;
-    const sanctioned = egressCc !== null && isBlockedCountry(egressCc);
+    let sanctioned = egressCc !== null && isBlockedCountry(egressCc);
+    if (!sanctioned && egressCc !== null && d.isSanctionedCountry) {
+      try { sanctioned = d.isSanctionedCountry(egressCc); } catch { sanctioned = true; }
+    }
     const countryMismatch = egressCc !== null && liveCc !== null && egressCc !== liveCc;
-    if (sanctioned || countryMismatch) {
-      next = "unknown"; // never matches a class-* or country-* request
+    const blocked = sanctioned || countryMismatch;
+    // The class stays conservative(base, observed): a masked/dc verdict is
+    // never relaxed. The block is a separate flag the selector checks first.
+    if (blocked) {
       d.logger?.warn("node egress country mismatch", { nodeId, sanctioned, egressCountry: egressCc, tunnelCountry: liveCc });
     }
+    // Only positive evidence changes the block: a mismatch sets it, a probe
+    // whose egress country matches the tunnel's clears it; no geo keeps it.
+    const matched = !blocked && egressCc !== null && liveCc !== null;
+    const blockState: boolean | undefined = blocked ? true : matched ? false : undefined;
+    if (blockState !== undefined) live.egressBlocked = blockState;
     live.egressVerifiedAt = now();
     live.probePending = false;
     const prev = live.ipClass;
@@ -344,17 +363,17 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
       try {
         await d.onCountryMismatch(nodeId);
       } catch {
-        /* class is already "unknown" (not selectable); sessions still end at max age */
+        /* node is already egressBlocked (not selectable); sessions still end at max age */
       }
     }
     if (sanctioned && d.quarantine) {
       try {
         await d.quarantine(nodeId, "sanctioned_egress_country");
       } catch {
-        /* class is already "unknown"; retried on the next probe */
+        /* node is already egressBlocked; retried on the next probe */
       }
     }
-    await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null, ...(sanctioned || countryMismatch ? { forceFlag: true } : {}) });
+    await d.record(nodeId, next, { probeClass: observed, connectClass: live.peerClass ?? null, ...(blockState !== undefined ? { egressBlocked: blockState } : {}), ...(blocked ? { forceFlag: true } : {}) });
     return next;
   };
 }

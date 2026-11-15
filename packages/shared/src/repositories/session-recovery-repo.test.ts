@@ -35,12 +35,13 @@ describe("session-recovery-repo", () => {
   });
 
   it("heartbeats only this instance's active rows", async () => {
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-    await heartbeatSessions("gw-a", [{ sessionId: input.sessionId, bytesIn: 10, bytesOut: -5 }]);
+    mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: input.sessionId }] });
+    expect(await heartbeatSessions("gw-a", [{ sessionId: input.sessionId, bytesIn: 10, bytesOut: -5 }])).toEqual([input.sessionId]);
     const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("s.gateway_instance = $1");
+    expect(sql).toContain("RETURNING s.id");
     expect(params).toEqual(["gw-a", [input.sessionId], ["10"], ["0"]]);
-    expect(await heartbeatSessions("gw-a", [])).toBe(0);
+    expect(await heartbeatSessions("gw-a", [])).toEqual([]);
   });
 
   it("lists only stale sessions of other instances without a pending retry, with flushed bytes", async () => {

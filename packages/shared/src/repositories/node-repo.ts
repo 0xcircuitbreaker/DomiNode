@@ -83,6 +83,8 @@ export interface TunnelAuthNode {
   declared_class?: ExitClass | null;
   /** Last persisted egress-probe verdict (gateway-observed); null = never probed. */
   probe_class?: NodeIpClass | null;
+  /** Last probe saw the egress in another (or a sanctioned) country; not selectable. */
+  egress_blocked?: boolean;
 }
 
 export interface NodeChallenge {
@@ -375,7 +377,8 @@ export async function getNodeForTunnelAuth(keyHash: string): Promise<TunnelAuthN
             n.node_pubkey, n.status, n.attestation_version,
             n.max_streams, n.max_gb_day, n.max_req_per_sec, n.reputation, n.report_penalty, n.operator_run, n.declared_class,
             -- Own verdict decays like the owner+prefix one (30 days).
-            CASE WHEN n.probe_class_at > now() - interval '30 days' THEN n.probe_class END AS probe_class
+            CASE WHEN n.probe_class_at > now() - interval '30 days' THEN n.probe_class END AS probe_class,
+            (n.egress_blocked_at IS NOT NULL) AS egress_blocked
      FROM nodes n
      JOIN users u ON u.id = n.owner_user_id
      WHERE n.node_key_hash = $1
@@ -438,6 +441,8 @@ export interface VerifiedClassOptions {
   connectClass?: NodeIpClass | null;
   /** Open the egress_mismatch flag regardless of class (e.g. probe egress country differs from the tunnel IP's). */
   forceFlag?: boolean;
+  /** Probe egress country mismatch / sanctioned: true sets egress_blocked_at, false clears it, unset keeps it. */
+  egressBlocked?: boolean;
 }
 
 export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass, opts: VerifiedClassOptions = {}): Promise<VerifiedClassResult> {
@@ -460,9 +465,11 @@ export async function recordVerifiedClass(nodeId: string, verified: NodeIpClass,
     await client.query(
       `UPDATE nodes SET ip_class = $2, class_verified_at = now(),
               probe_class = COALESCE($3, probe_class),
-              probe_class_at = CASE WHEN $3::text IS NULL THEN probe_class_at ELSE now() END
+              probe_class_at = CASE WHEN $3::text IS NULL THEN probe_class_at ELSE now() END,
+              egress_blocked_at = CASE WHEN $4::boolean IS NULL THEN egress_blocked_at
+                                       WHEN $4::boolean THEN COALESCE(egress_blocked_at, now()) ELSE NULL END
        WHERE id = $1`,
-      [nodeId, verified, opts.probeClass ?? null],
+      [nodeId, verified, opts.probeClass ?? null, opts.egressBlocked ?? null],
     );
     // Flag when the verified class is below the declared class OR below the
     // connect-time class (catches nodes that never declared a class).
