@@ -1043,3 +1043,34 @@ describe("gateway VPS readiness", () => {
     expect(sec).not.toMatch(/daedalusdevelopmentgroup|dominusnode\.com|@gmail\.|@protonmail\.|\b(?!10\.66\.0\.)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
   });
 });
+
+describe("pre-launch: installer temp files and compose log rotation", () => {
+  it.runIf(has("openssl", ["version"]))("install.sh keeps operator .env copies such as .env.backup", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+      fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+      fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+      for (const f of [".env.backup", ".env.sample", ".env.bak"]) fs.writeFileSync(path.join(tmp, f), "KEEP=1\n");
+      execFileSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+        env: { ...process.env, DOMINUSNODE_HOSTNAMES: "node.example.org", TLS_MODE: "auto", OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1" },
+        stdio: "pipe",
+      });
+      for (const f of [".env.backup", ".env.sample", ".env.bak"]) expect(fs.existsSync(path.join(tmp, f))).toBe(true);
+      expect(fs.readdirSync(tmp).filter((f) => f.startsWith(".env-tmp."))).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  for (const file of ["docker-compose.selfhost.yml", "docker-compose.prod.yml"]) {
+    it(`every service in ${file} has a capped logging block`, () => {
+      const yaml = createRequire(__filename)("js-yaml") as { load(s: string): unknown };
+      const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), "utf8")) as {
+        services: Record<string, { logging?: { driver?: string; options?: Record<string, string> } }>;
+      };
+      const missing = Object.entries(doc.services).filter(([, s]) => !s.logging?.options?.["max-size"]).map(([n]) => n);
+      expect(missing).toEqual([]);
+    });
+  }
+});

@@ -293,8 +293,8 @@ router.post("/accounts/:userId/unfreeze", async (req: Request, res: Response) =>
       const r = await payoutRepo.unfreezeAccountTx(c as unknown as Parameters<typeof payoutRepo.unfreezeAccountTx>[0], target, mode);
       if (!r) throw new HttpError(404, "Credit account not found");
       await c.query(
-        `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details)
-         VALUES ($1, 'node_credit_unfreeze', 'node_credit_account', $2, $3, $4)`,
+        `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details, admin_action)
+         VALUES ($1, 'node_credit_unfreeze', 'node_credit_account', $2, $3, $4, true)`,
         [uid, target, (req.ip ?? "").slice(0, 64) || null,
           JSON.stringify({ mode, wasFrozen: r.wasFrozen, payouts: r.payouts, musd: r.musd.toString() })],
       );

@@ -5,9 +5,11 @@ import http from "http";
 const order: string[] = [];
 const clientQuery = vi.fn(async (sql: string) => {
   order.push(sql);
+  if (sql.includes("SELECT admin_role FROM users")) return { rows: [{ admin_role: roles.locked }], rowCount: 1 };
   return { rows: [{ wallet_address: null }], rowCount: 0 };
 });
 const payoutInFlight = { value: false };
+const roles = { pre: "none", locked: "none" };
 const erase = vi.fn(async () => {
   order.push("ERASE_RELAY");
 });
@@ -20,7 +22,7 @@ const consume = vi.fn(async () => challenge.stored);
 vi.mock("@dominusnode/shared", () => ({
   query: vi.fn(async (sql: string) => {
     if (sql.includes("FROM node_payouts")) return { rows: payoutInFlight.value ? [{ id: "p1" }] : [] };
-    return { rows: [{ email: "0xabc@wallet.dominusnode.com", wallet_address: WALLET }] };
+    return { rows: [{ email: "0xabc@wallet.dominusnode.com", wallet_address: WALLET, admin_role: roles.pre }] };
   }),
   getPool: vi.fn(() => ({ connect: async () => ({ query: clientQuery, release: vi.fn() }) })),
   createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
@@ -70,6 +72,9 @@ describe("DELETE /api/account relay-network erasure", () => {
   beforeEach(() => {
     order.length = 0;
     payoutInFlight.value = false;
+    roles.pre = "none";
+    roles.locked = "none";
+    erase.mockClear();
     challenge.stored = null;
     challenge.signer = WALLET;
     consume.mockClear();
@@ -89,6 +94,29 @@ describe("DELETE /api/account relay-network erasure", () => {
     expect(b).toBeGreaterThanOrEqual(0);
     expect(e).toBeGreaterThan(b);
     expect(c).toBeGreaterThan(e);
+  });
+
+  it("refuses self-deletion while the account holds an admin role", async () => {
+    roles.pre = "admin";
+    const app = express();
+    app.use(express.json());
+    app.use("/api/account", accountRouter);
+    expect(await del(app, "adm1")).toBe(409);
+    expect(erase).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(order).not.toContain("BEGIN");
+  });
+
+  it("re-checks the admin role under the row lock and rolls back", async () => {
+    roles.locked = "cybersecurity_admin";
+    const app = express();
+    app.use(express.json());
+    app.use("/api/account", accountRouter);
+    expect(await del(app, "adm2")).toBe(409);
+    expect(erase).not.toHaveBeenCalled();
+    expect(order.some((q) => q.includes("FOR UPDATE") && q.includes("admin_role"))).toBe(true);
+    expect(order).toContain("ROLLBACK");
+    expect(order).not.toContain("COMMIT");
   });
 
   it("terminates live proxy sessions before the erasure transaction begins", async () => {

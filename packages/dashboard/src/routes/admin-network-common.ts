@@ -63,8 +63,8 @@ export async function audit(
   c: TxClient, req: Request, action: string, resource: string, resourceId: string, details: Record<string, unknown>,
 ): Promise<void> {
   await c.query(
-    `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details, admin_action)
+     VALUES ($1, $2, $3, $4, $5, $6, true)`,
     [adminId(req), action, resource, resourceId, (req.ip ?? "").slice(0, 64) || null, JSON.stringify(details)],
   );
 }

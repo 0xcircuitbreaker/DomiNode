@@ -152,4 +152,19 @@ describe.skipIf(!PG_TEST_URL)("pre-launch audit fixes (PostgreSQL)", () => {
       expect((await owedFundsRepo.listOpen(src)).map((r) => r.id)).not.toContain(id);
     }
   });
+
+  it("deleteUser keeps details on the user's admin-action audit rows, wipes the rest", async () => {
+    const u = await mkUser();
+    await query(
+      `INSERT INTO audit_events (user_id, action, resource, resource_id, ip_address, details, admin_action)
+       VALUES ($1, 'kill_switch_set', 'kill_switch', 'payouts', '203.0.113.9', '{"engaged":true,"reason":"r"}', true),
+              ($1, 'login', 'session', NULL, '203.0.113.9', '{"ua":"x"}', false)`, [u]);
+    await deleteUser(u);
+    const rows = (await query<{ action: string; ip_address: string; details: unknown }>(
+      `SELECT action, ip_address, details FROM audit_events WHERE user_id = $1 ORDER BY action`, [u])).rows;
+    expect(rows).toEqual([
+      { action: "kill_switch_set", ip_address: "REDACTED", details: { engaged: true, reason: "r" } },
+      { action: "login", ip_address: "REDACTED", details: null },
+    ]);
+  });
 });
