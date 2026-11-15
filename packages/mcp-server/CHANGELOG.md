@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-15
+
 ### Added
 - `dominusnode_status` (public, also in bootstrap mode): live network status from `GET /v1/status` (gateway/coordinator health, 24h/7d availability, online nodes, open incidents).
 

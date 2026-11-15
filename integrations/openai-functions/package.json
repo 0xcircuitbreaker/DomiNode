@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/openai-functions",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "DominusNode v2 OpenAI-compatible function definitions and handler: the 19 standard relay-network tools on @dominusnode/sdk",
   "main": "dist/handler.js",
   "types": "dist/handler.d.ts",
