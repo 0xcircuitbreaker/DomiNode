@@ -98,7 +98,16 @@ jobs:
       - name: Build
         run: npm run build
 
+      # NODE_ENV=production makes getPool() use TLS with certificate
+      # verification; refuse a URL that turns TLS off or the DB_SSL escape.
       - name: Run database migration
-        run: npm run db:migrate
+        run: |
+          case "$DATABASE_URL" in
+            *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*|*ssl=false*|*ssl=0*)
+              echo "::error::DATABASE_URL must not disable TLS for the production migration"; exit 1 ;;
+          esac
+          npm run db:migrate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production
+          DB_SSL: "true"

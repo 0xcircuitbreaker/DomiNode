@@ -534,7 +534,7 @@ if [ "$ROLE_SEL" = gateway ]; then
   echo "gateway public key (hex): $PUB"
   echo "next, on the coordinator: GATEWAY_PUBKEY=$PUB ./scripts/selfhost/install.sh --yes"
   echo "node release builds: DN_COORD_PUBKEYS=$PINS (DEPLOYMENT.md 'Gateway VPS checklist')"
-  echo "check this box: ./scripts/selfhost/preflight.sh"
+  echo "check this box: sudo ./scripts/selfhost/preflight.sh"
 fi
 JWT_CHECK="$(env_get JWT_SECRET | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(require("crypto").createHmac("sha256",d.trim()).update("dominusnode-jwt-check").digest("hex").slice(0,16)))')"
 echo "JWT secret check value (must match on coordinator and gateway for dn_proxy_ tokens): $JWT_CHECK"

@@ -60,7 +60,10 @@ export const SMALL_PAID_SUPPRESSED = ["paidBytes24h", "seedPaidBytes24h", "commu
  *    stable, so a published total minus the seed count would reveal it).
  *  - fewer than k distinct community nodes with paid traffic in the 24h window
  *    (which counts offline nodes too): all paid figures are hidden.
- *  - byClass entries below k fold into "other"; an "other" below k is dropped.
+ *  - byClass entries below k fold into "other", with complementary
+ *    suppression so the classes always sum to the published total.
+ *  - quality metrics (successRateBps, p50Ms, p95Ms) present on the input are
+ *    nulled whenever paid figures are hidden: they then describe too few owners.
  */
 export function kAnonymize<T extends PublicSplit>(x: T, k = PUBLIC_MIN_GROUP): T & { suppressed: string[] } {
   const out = { ...x, byClass: { ...x.byClass }, suppressed: [] as string[] };
@@ -75,6 +78,11 @@ export function kAnonymize<T extends PublicSplit>(x: T, k = PUBLIC_MIN_GROUP): T
     out.suppressed.push(...SMALL_PAID_SUPPRESSED);
   }
   if (smallPaid) { out.paidBytes24h = "0"; out.seedPaidBytes24h = "0"; out.communityPaidBytes24h = "0"; }
+  const quality = ["successRateBps", "p50Ms", "p95Ms"].filter((f) => f in x);
+  if (smallPaid && quality.length > 0) {
+    for (const f of quality) (out as unknown as Record<string, unknown>)[f] = null;
+    out.suppressed.push(...quality);
+  }
   delete (out as Partial<PublicSplit>).communityPaidNodes24h;
   delete (out as Partial<PublicSplit>).communityOwnersOnline;
   delete (out as Partial<PublicSplit>).communityPaidOwners24h;
@@ -82,13 +90,26 @@ export function kAnonymize<T extends PublicSplit>(x: T, k = PUBLIC_MIN_GROUP): T
   const owners = x.byClassOwners ?? null;
   const byClass: Record<string, number> = {};
   if (!smallCommunity) {
+    // Complementary suppression: the published classes always sum to the
+    // published total, so a hidden class cannot be recovered by subtraction,
+    // and `suppressed` never varies with it. Sub-k classes go to "other"; while
+    // "other" is itself below k (or, with owner counts, holds no class already
+    // known to have k owners), the smallest published class is folded in too.
     let other = 0;
+    let otherSafe = owners === null;
+    const pub: Array<[string, number]> = [];
     for (const [cls, n] of Object.entries(x.byClass)) {
       if (!Number.isFinite(n) || n <= 0) continue;
-      if (n >= k && (owners === null || num(owners[cls]) >= k)) byClass[cls] = n; else other += n;
+      if (n >= k && (owners === null || num(owners[cls]) >= k)) pub.push([cls, n]); else other += n;
     }
-    if (other >= k && owners === null) byClass["other"] = (byClass["other"] ?? 0) + other;
-    else if (other > 0) out.suppressed.push("byClass");
+    pub.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    while (other > 0 && (other < k || !otherSafe) && pub.length > 0) {
+      other += pub.pop()![1];
+      otherSafe = true;
+    }
+    for (const [cls, n] of pub) byClass[cls] = n;
+    // Everything folded: "other" is every online node (community alone is >= k owners).
+    if (other > 0) byClass["other"] = (byClass["other"] ?? 0) + other;
   }
   out.byClass = byClass;
   return out;
@@ -163,7 +184,7 @@ export interface SnapshotRow {
   hour: Date; onlineNodes: number; seedOnline: number; communityOnline: number; countries: number; asns: number;
   successRateBps: number | null; p50Ms: number | null; p95Ms: number | null; paidBytes24h: string;
   seedPaidBytes24h: string; communityPaidBytes24h: string; byClass: Record<string, number>;
-  /** Fields hidden by kAnonymize (published as 0). */
+  /** Fields hidden by kAnonymize (published as 0, or null for quality metrics). */
   suppressed?: string[];
 }
 
