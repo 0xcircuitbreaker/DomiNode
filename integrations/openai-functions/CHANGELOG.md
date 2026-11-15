@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.0
+
+### Changed
+- Requires `@dominusnode/sdk` ^2.4.0 (adds `network.status` and `wallet.get`).
+
 ## 2.0.0 (2026-11-06)
 
 ### Breaking
