@@ -65,7 +65,7 @@ env_get() {
 env_set() {
   local key="$1" val="$2" tmp
   case "$val" in *$'\n'*|*$'\r'*) die "refusing to write a multi-line value for $key" ;; esac
-  tmp="$(mktemp "$ROOT/.env.XXXXXX")"
+  tmp="$(mktemp "$ENV_TMPDIR/env.XXXXXX")"
   # Replace in place so re-runs keep .env byte-stable (restores compare it).
   if [ -f "$ENV_FILE" ] && grep -qE "^$key=" "$ENV_FILE"; then
     KEY="$key" VAL="$val" awk 'index($0, ENVIRON["KEY"] "=") == 1 { if (!done) print ENVIRON["KEY"] "=" ENVIRON["VAL"]; done = 1; next } { print }' "$ENV_FILE" > "$tmp"
@@ -80,7 +80,7 @@ env_set() {
 env_unset() {
   local tmp
   [ -f "$ENV_FILE" ] || return 0
-  tmp="$(mktemp "$ROOT/.env.XXXXXX")"
+  tmp="$(mktemp "$ENV_TMPDIR/env.XXXXXX")"
   grep -vE "^$1=" "$ENV_FILE" > "$tmp" || true
   chmod 600 "$tmp"
   mv "$tmp" "$ENV_FILE"
@@ -122,7 +122,11 @@ ask() {
 }
 
 umask 077
-trap 'rm -f "$ROOT"/.env.?????? "$SH_DIR/Caddyfile.tmp"' EXIT INT TERM
+# .env rewrites are staged in a private directory on the same filesystem (so
+# the mv is atomic) and only that directory is removed on exit: a glob over
+# .env.* would also delete operator copies such as .env.backup.
+ENV_TMPDIR="$(mktemp -d "$ROOT/.env-tmp.XXXXXX")"
+trap 'rm -rf "$ENV_TMPDIR"; rm -f "$SH_DIR/Caddyfile.tmp"' EXIT INT TERM
 mkdir -p "$SH_DIR"
 
 # ─── Role ───────────────────────────────────────────────────────────

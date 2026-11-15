@@ -391,6 +391,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
 
+-- Rows written by admin actions (the admin audit() helper). Account erasure
+-- redacts ip_address on them but keeps details, so an admin cannot blank the
+-- record of their own actions (kill switches, credits) by deleting the account.
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS admin_action BOOLEAN NOT NULL DEFAULT false;
+
 -- ─── Wallet Address on Users (for crypto wallet auth) ─────────────────
 
 DO $$ BEGIN

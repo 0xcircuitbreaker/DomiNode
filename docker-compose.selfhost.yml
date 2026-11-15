@@ -231,6 +231,7 @@ services:
   # only the admin paths (/admin, /login, assets) here, and redirects / to /admin.
   # Self-host nginx config: no HSTS includeSubDomains/preload, connect-src self.
   frontend:
+    logging: *default-logging
     profiles: [coordinator]
     build: { context: ., dockerfile: infra/docker/frontend.Dockerfile, args: { NGINX_CONF: infra/nginx/selfhost.conf } }
     image: dominusnode-frontend:selfhost

@@ -256,9 +256,10 @@ export async function deleteUser(userId: string, ext?: DbTxClient): Promise<void
       [userId]
     );
 
-    // Anonymize audit events and sessions
+    // Anonymize audit events and sessions. Rows recording this user's admin
+    // actions keep their details (what was changed, why): only the IP goes.
     await client.query(
-      "UPDATE audit_events SET ip_address = 'REDACTED', details = NULL WHERE user_id = $1",
+      "UPDATE audit_events SET ip_address = 'REDACTED', details = CASE WHEN admin_action THEN details ELSE NULL END WHERE user_id = $1",
       [userId]
     );
     await client.query(

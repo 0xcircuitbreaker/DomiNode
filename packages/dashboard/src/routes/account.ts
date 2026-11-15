@@ -254,6 +254,15 @@ router.post("/delete-challenge", requireAuth, deleteChallengeLimiter, async (req
  * GDPR right to erasure: anonymize user data
  * H-1 fix: Requires password re-authentication for security
  */
+const ADMIN_DELETE_REFUSED = {
+  error: "Admin accounts cannot be deleted while they hold an admin role. Ask the root admin to remove the role first.",
+  code: "ADMIN_ROLE_HELD",
+};
+class AdminSelfDeleteError extends Error {}
+function isAdminRole(role: unknown): boolean {
+  return typeof role === "string" && role !== "" && role !== "none";
+}
+
 router.delete(
   "/",
   requireAuth,
@@ -263,9 +272,15 @@ router.delete(
 
     try {
       // Look up user email for auth check
-      const emailRow = (await query("SELECT email, wallet_address FROM users WHERE id = $1", [userId])).rows[0];
+      const emailRow = (await query("SELECT email, wallet_address, admin_role FROM users WHERE id = $1", [userId])).rows[0];
       if (!emailRow) {
         res.status(404).json({ error: "Account not found." });
+        return;
+      }
+      // Admins cannot self-erase: the erasure redacts their audit rows and the
+      // admin role must be removed (by root) first. Re-checked under the row lock.
+      if (isAdminRole(emailRow.admin_role)) {
+        res.status(409).json(ADMIN_DELETE_REFUSED);
         return;
       }
       const userEmail = emailRow.email;
@@ -354,6 +369,11 @@ router.delete(
       try {
         await client.query("BEGIN");
 
+        const locked = await client.query("SELECT admin_role FROM users WHERE id = $1 FOR UPDATE", [userId]);
+        if (isAdminRole(locked.rows[0]?.admin_role)) {
+          throw new AdminSelfDeleteError();
+        }
+
         // One erasure statement list, shared with the admin delete path.
         await adminRepo.deleteUser(userId, client);
 
@@ -373,6 +393,10 @@ router.delete(
       res.json({ message: "Account deleted. Your data has been anonymized." });
     } catch (err) {
       log.error("account deletion failed", { userId, error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof AdminSelfDeleteError) {
+        res.status(409).json(ADMIN_DELETE_REFUSED);
+        return;
+      }
       if (err instanceof Error && err.name === "PayoutInFlightError") {
         res.status(409).json({ error: "A payout is in flight. Retry account deletion once it settles." });
         return;
