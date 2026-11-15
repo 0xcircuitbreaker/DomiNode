@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TokenManager } from "../src/token-manager.js";
+import { TokenManager, TokenVerifyError } from "../src/token-manager.js";
 
 function makeJwt(exp: number): string {
   const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url");
@@ -18,6 +18,24 @@ describe("TokenManager", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  describe("agent secret and errors", () => {
+    it("sends the agent secret on verify-key and refresh when configured", async () => {
+      const secret = "s".repeat(40);
+      const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ token: makeJwt(Math.floor(Date.now() / 1000) + 600), refreshToken: "r".repeat(40) }), { status: 200 }));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      await new TokenManager("http://localhost:3000", secret).initialize("dn_live_aaaaaaaaaaaa");
+      expect((fetchMock.mock.calls[0]![1] as RequestInit).headers).toMatchObject({ "X-DominusNode-Agent": "mcp", "X-DominusNode-Agent-Secret": secret });
+      await tm.initialize("dn_live_aaaaaaaaaaaa");
+      expect((fetchMock.mock.calls[1]![1] as RequestInit).headers).not.toHaveProperty("X-DominusNode-Agent-Secret");
+    });
+    it("verify-key failures carry the HTTP status", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(new Response("", { status: 429 })) as unknown as typeof fetch;
+      const err = await tm.initialize("dn_live_aaaaaaaaaaaa").catch((e) => e);
+      expect(err).toBeInstanceOf(TokenVerifyError);
+      expect(err.status).toBe(429);
+    });
   });
 
   describe("isExpired", () => {

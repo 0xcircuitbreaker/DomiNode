@@ -324,7 +324,7 @@ export function makeEgressVerifier(d: EgressVerifierDeps): (nodeId: string, egre
     const observed = verdict.ipClass;
     const first = live.egressVerifiedAt === undefined;
     const base = first ? (live.connectClass ?? live.peerClass ?? live.ipClass) : live.ipClass;
-    let next = conservativeClass(base, observed);
+    const next = conservativeClass(base, observed);
     // Country check: the node is sold under its tunnel IP's country, so a
     // probe egress elsewhere (or in a sanctioned country) must not serve.
     const egressCc = verdict.country ? verdict.country.toUpperCase() : null;

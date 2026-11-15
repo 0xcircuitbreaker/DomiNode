@@ -3,7 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { createLogger, query } from "@dominusnode/shared";
-import { agentAwareRateLimit } from "./helpers/agent-rate-limit.js";
+import { agentAwareRateLimit, resolveAgentSecret } from "./helpers/agent-rate-limit.js";
 import { requestIdMiddleware } from "./helpers/request-id.js";
 
 import { refreshTokenRepo } from "@dominusnode/shared";
@@ -157,6 +157,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     }),
   );
 
+  // Resolve per-agent das_ secrets first so the limiters below see them (cached).
+  app.use(resolveAgentSecret());
   // Global rate limit: 100 requests/min per IP (agents get boosted via agentAwareRateLimit)
   app.use(
     agentAwareRateLimit({

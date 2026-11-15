@@ -84,7 +84,8 @@ No — but they should be split by where trust lives:
   Country check: when the probe egress country differs from the tunnel IP's
   country the node is blocked (`nodes.egress_blocked_at`, unselectable for every
   request, kept across reconnects until a probe on a later connection matches;
-  its class stays the conservative probe verdict), the `egress_mismatch` flag
+  its class stays the conservative probe verdict; with probes disabled an admin
+  clears it with `UPDATE nodes SET egress_blocked_at = NULL`), the `egress_mismatch` flag
   opens and every in-flight session on the node ends; a sanctioned (OFAC)
   egress country (OFAC list or policy `sanctionedCountries`) also quarantines
   the node and closes its tunnel. Privacy: the classification reuses `nodes.observed_ip`

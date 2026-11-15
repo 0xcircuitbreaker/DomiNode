@@ -226,6 +226,15 @@ if [ "$ROLE_SEL" = gateway ]; then
   if [ -n "$COORD_JWT" ]; then
     printf '%s' "$COORD_JWT" | grep -Eq '^[0-9a-f]{64,}$' || die "COORD_JWT_SECRET must be the coordinator's JWT_SECRET (hex)"
   fi
+  # Probe auth secret: gateway canary probes sign their nonce with it and the
+  # coordinator's API checks it (dedicated probe budget), so both need one value.
+  COORD_PROBE="${COORD_PROBE_AUTH_SECRET:-}"
+  if [ -z "$COORD_PROBE" ] && [ -z "$(env_get PROBE_AUTH_SECRET)" ] && [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+    read -r -s -p "Coordinator PROBE_AUTH_SECRET (from its .env; empty: probes use the public per-IP budget): " COORD_PROBE; echo
+  fi
+  if [ -n "$COORD_PROBE" ]; then
+    printf '%s' "$COORD_PROBE" | grep -Eq '^[0-9a-f]{64,}$' || die "COORD_PROBE_AUTH_SECRET must be the coordinator's PROBE_AUTH_SECRET (hex)"
+  fi
 fi
 DB_WG=""; GW_PUB=""
 if [ "$ROLE_SEL" = coordinator ]; then
@@ -286,6 +295,7 @@ ensure_secret POSTGRES_PASSWORD 24
 if [ -n "${COORD_JWT:-}" ]; then env_set JWT_SECRET "$COORD_JWT"; fi
 ensure_secret JWT_SECRET 48
 ensure_secret MFA_ENCRYPTION_KEY 32
+if [ -n "${COORD_PROBE:-}" ]; then env_set PROBE_AUTH_SECRET "$COORD_PROBE"; fi
 ensure_secret PROBE_AUTH_SECRET 32
 env_set DOMINUSNODE_DOMAIN "$PRIMARY"
 env_set PUBLIC_HOSTNAMES "$(printf '%s' "$HOSTS" | tr ' ' ',')"
@@ -347,6 +357,9 @@ env_set DB_WG_BIND "$DB_WG"; env_set GATEWAY_PUBKEY "$GW_PUB"; env_set COORD_ADD
 env_set OPERATOR_CONTACT "$CONTACT"
 env_set ABUSE_CONTACT "$ABUSE"; env_set OPERATOR_NAME "$OPNAME"; env_set SITE_NAME "$SITENAME"
 env_set ADMIN_HUMAN_LOGIN "${ADMIN_LOGIN:-false}"; env_set ADMIN_BOOTSTRAP_EMAIL "$ADMIN_EMAIL"
+# One-time secret the first-admin registration must present: the address alone
+# (often published) must not be enough to claim the admin panel.
+if [ -n "$ADMIN_EMAIL" ]; then ensure_secret ADMIN_BOOTSTRAP_TOKEN 32; else env_unset ADMIN_BOOTSTRAP_TOKEN; fi
 if [ -n "$DB_WG" ]; then ensure_secret GATEWAY_DB_PASSWORD 24; fi
 if [ "$TLS" = off ]; then
   env_set COOKIE_SECURE false; env_set TUNNEL_SCHEME ws
@@ -515,6 +528,8 @@ if [ "$ROLE_SEL" = gateway ]; then
 fi
 JWT_CHECK="$(env_get JWT_SECRET | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(require("crypto").createHmac("sha256",d.trim()).update("dominusnode-jwt-check").digest("hex").slice(0,16)))')"
 echo "JWT secret check value (must match on coordinator and gateway for dn_proxy_ tokens): $JWT_CHECK"
+PROBE_CHECK="$(env_get PROBE_AUTH_SECRET | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(require("crypto").createHmac("sha256",d.trim()).update("dominusnode-probe-check").digest("hex").slice(0,16)))')"
+echo "probe auth check value (must match on coordinator and gateway; pass COORD_PROBE_AUTH_SECRET on a gateway): $PROBE_CHECK"
 fp() { node -e 'process.stdout.write("sha256:"+require("crypto").createHash("sha256").update(Buffer.from(process.argv[1],"hex")).digest("hex"))' "$1"; }
 TRUST="$(for k in $(printf '%s' "$PINS" | tr ',' ' '); do fp "$k"; echo; done | paste -sd, -)"
 echo "exit nodes run on other hosts (a node on this box is refused as a private peer). Join command:"
@@ -631,7 +646,7 @@ if [ "$ROLE_SEL" = gateway ]; then
   echo "up."
 else
   if [ -n "$ADMIN_EMAIL" ]; then
-    echo "first admin: register $ADMIN_EMAIL (DEPLOYMENT.md 'Self-host admin'), then re-run with ADMIN_BOOTSTRAP_EMAIL= (empty) to close registration"
+    echo "first admin: register $ADMIN_EMAIL with bootstrapToken = ADMIN_BOOTSTRAP_TOKEN from .env (DEPLOYMENT.md 'Self-host admin'), then re-run with ADMIN_BOOTSTRAP_EMAIL= (empty) to close registration"
   fi
   echo "up. admin UI: $SCHEME://$PRIMARY/  status page: $SCHEME://$PRIMARY/status"
 fi

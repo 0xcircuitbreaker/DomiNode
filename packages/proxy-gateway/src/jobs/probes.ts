@@ -624,6 +624,12 @@ export function probeAuthHeader(nonce: string, secret = process.env["PROBE_AUTH_
 export interface SelfCheckResult {
   ok: boolean;
   reason?: string;
+  /**
+   * PROBE_AUTH_SECRET is set but the echo target did not accept its signature
+   * (secret differs between gateway and API): probes fall back to the public
+   * per-IP budget there.
+   */
+  authRejected?: boolean;
 }
 
 /**
@@ -652,13 +658,15 @@ export async function selfCheckTarget(
   const status = head.split("\r\n")[0]!;
   if (!/^HTTP\/1\.[01] 200 /.test(status)) return { ok: false, reason: `status ${status.slice(9, 12)}` };
   const text = completeBody(head, buf.subarray(sep + 4));
+  let gatewayAuth: unknown;
   try {
-    const body = text === null ? null : (JSON.parse(text) as { nonce?: unknown } | null);
+    const body = text === null ? null : (JSON.parse(text) as { nonce?: unknown; gateway?: unknown } | null);
     if (!body || body.nonce !== nonce) return { ok: false, reason: "nonce not echoed" };
+    gatewayAuth = body.gateway;
   } catch {
     return { ok: false, reason: "malformed body" };
   }
-  return { ok: true };
+  return probeAuthHeader(nonce) !== "" && gatewayAuth !== true ? { ok: true, authRejected: true } : { ok: true };
 }
 
 function dialDirect(host: string, port: number): Promise<Duplex> {
@@ -687,12 +695,16 @@ export class ProbeHealth {
   get healthy(): boolean {
     return this.live.length > 0;
   }
+  /** Targets that answered but did not accept this gateway's PROBE_AUTH_SECRET (last refresh). */
+  readonly authRejected: string[] = [];
   /** Re-check every target; returns the failures. */
   async refresh(): Promise<{ target: string; reason: string }[]> {
     const res = await Promise.all(this.all.map(async (t) => ({ t, r: await this.check(t).catch((): SelfCheckResult => ({ ok: false, reason: "error" })) })));
     this.live.length = 0;
+    this.authRejected.length = 0;
     const failed: { target: string; reason: string }[] = [];
     for (const { t, r } of res) {
+      if (r.ok && r.authRejected) this.authRejected.push(`${t.host}:${t.port}${t.path}`);
       if (r.ok) this.live.push(t);
       else failed.push({ target: `${t.host}:${t.port}${t.path}`, reason: r.reason ?? "failed" });
     }

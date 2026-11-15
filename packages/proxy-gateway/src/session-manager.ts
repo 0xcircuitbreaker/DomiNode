@@ -165,7 +165,15 @@ function settleInputFor(session: ActiveSession): relayChargeRepo.SettleRelayChar
 async function persistRecovery(session: ActiveSession): Promise<void> {
   if (!recoveryInstanceId) return;
   await sessionRecoveryRepo.attachRecoveryPayload(recoveryInstanceId, settleInputFor(session));
+  recoveryAttached.add(session);
 }
+
+/**
+ * Sessions whose row carries this instance's recovery payload. Only these can
+ * be settled by another instance's recovery, so only these are fenced (a
+ * prepaid session before payment capture has no payload yet).
+ */
+const recoveryAttached = new WeakSet<ActiveSession>();
 
 /** Sessions younger than this are never fenced (their row may not carry the instance id yet). */
 const FENCE_MIN_AGE_MS = 30_000;
@@ -189,7 +197,7 @@ export async function heartbeatActiveSessions(now = Date.now()): Promise<number>
   if (!Array.isArray(updated)) return 0;
   const alive = new Set(updated);
   const fenced = snapshot
-    .filter((s) => !alive.has(s.sessionId) && now - s.startedAt.getTime() >= FENCE_MIN_AGE_MS && activeSessions.get(s.sessionId) === s)
+    .filter((s) => recoveryAttached.has(s) && !alive.has(s.sessionId) && now - s.startedAt.getTime() >= FENCE_MIN_AGE_MS && activeSessions.get(s.sessionId) === s)
     .map((s) => s.sessionId);
   if (fenced.length > 0) {
     log.warn("ending sessions no longer active for this instance in the database (fenced)", { count: fenced.length });

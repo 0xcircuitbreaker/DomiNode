@@ -47,6 +47,33 @@ describe("agent-rate-limit", () => {
     });
   });
 
+  describe("resolveAgentSecret (per-agent das_ secrets)", () => {
+    it("resolves a das_ secret before the limiter so isVerifiedAgent boosts it, and caches unknown secrets", async () => {
+      vi.resetModules();
+      const lookup = vi.fn(async (hash: string) => (hash.length === 64 && good.has(hash) ? "user-1" : null));
+      const crypto = await import("node:crypto");
+      const secret = "das_" + "a".repeat(64);
+      const bogus = "das_" + "b".repeat(64);
+      const good = new Set([crypto.createHash("sha256").update(secret).digest("hex")]);
+      vi.doMock("@dominusnode/shared", async (orig) => ({ ...(await orig<object>()), agentSecretRepo: { findUserBySecretHash: lookup } }));
+      const { resolveAgentSecret, isVerifiedAgent } = await import("./agent-rate-limit.js");
+      const mw = resolveAgentSecret();
+      const run = (req: any) => new Promise<void>((r) => mw(req, {}, r));
+      const req = { headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": secret } } as any;
+      expect(isVerifiedAgent(req)).toBe(false);
+      await run(req);
+      expect(isVerifiedAgent(req)).toBe(true);
+      await run(req);
+      expect(lookup).toHaveBeenCalledTimes(1);
+      const bad = { headers: { "x-dominusnode-agent": "mcp", "x-dominusnode-agent-secret": bogus } } as any;
+      await run(bad);
+      await run(bad);
+      expect(isVerifiedAgent(bad)).toBe(false);
+      expect(lookup).toHaveBeenCalledTimes(2);
+      vi.doUnmock("@dominusnode/shared");
+    });
+  });
+
   describe("isVerifiedAgent", () => {
     it("returns false when MCP_AGENT_SECRET is not configured", async () => {
       delete process.env["MCP_AGENT_SECRET"];

@@ -244,6 +244,12 @@ export interface McpHttpConfig {
   maxSessions: number;
   rateLimitPerMinute: number;
   maxBodyBytes: number;
+  /** Sessions one key may hold; its oldest is evicted beyond this (default 5). */
+  maxSessionsPerKey?: number;
+  /** initialize requests per client IP (IPv6 /64) per minute, checked before the key reaches the API (default 30). */
+  initPerIpPerMinute?: number;
+  /** Lower-case header a trusted reverse proxy sets to the client IP (e.g. x-forwarded-for); null = socket address. */
+  trustProxyHeader?: string | null;
 }
 
 const DEFAULT_MCP_HTTP_PORT = 3333;
@@ -292,7 +298,15 @@ export function parseHttpConfig(
   const rateLimitPerMinute = parseBoundedInt(env["DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN"], 120, 1, 10_000, "DOMINUSNODE_MCP_RATE_LIMIT_PER_MIN");
   const maxBodyBytes = parseBoundedInt(env["DOMINUSNODE_MCP_MAX_BODY_BYTES"], 1024 * 1024, 1024, 4 * 1024 * 1024, "DOMINUSNODE_MCP_MAX_BODY_BYTES");
 
-  return { port, host, allowedOrigins, sessionIdleMs, maxSessions, rateLimitPerMinute, maxBodyBytes };
+  const maxSessionsPerKey = parseBoundedInt(env["DOMINUSNODE_MCP_MAX_SESSIONS_PER_KEY"], 5, 1, 1000, "DOMINUSNODE_MCP_MAX_SESSIONS_PER_KEY");
+  const initPerIpPerMinute = parseBoundedInt(env["DOMINUSNODE_MCP_INIT_PER_IP_PER_MIN"], 30, 1, 10_000, "DOMINUSNODE_MCP_INIT_PER_IP_PER_MIN");
+  const rawTrust = (env["DOMINUSNODE_MCP_TRUST_PROXY_HEADER"] ?? "").trim().toLowerCase();
+  if (rawTrust !== "" && !["x-forwarded-for", "x-real-ip", "cf-connecting-ip"].includes(rawTrust)) {
+    throw new ConfigError("DOMINUSNODE_MCP_TRUST_PROXY_HEADER must be x-forwarded-for, x-real-ip or cf-connecting-ip");
+  }
+  const trustProxyHeader = rawTrust === "" ? null : rawTrust;
+
+  return { port, host, allowedOrigins, sessionIdleMs, maxSessions, rateLimitPerMinute, maxBodyBytes, maxSessionsPerKey, initPerIpPerMinute, trustProxyHeader };
 }
 
 function parseBoundedInt(value: string | undefined, defaultValue: number, min: number, max: number, name: string): number {

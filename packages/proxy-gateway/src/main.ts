@@ -198,6 +198,9 @@ async function main(): Promise<void> {
     const refresh = async (): Promise<void> => {
       const failed = await health.refresh();
       if (failed.length > 0) log.error("probe echo self-check failed", { failed, healthyTargets: health.live.length });
+      if (health.authRejected.length > 0) {
+        log.warn("probe echo target does not accept this gateway's PROBE_AUTH_SECRET (must equal the API's); probes use the public per-IP budget", { targets: health.authRejected });
+      }
       if (!health.healthy) {
         const released = releasePending(registry);
         if (wasHealthy || released > 0) log.error("probes paused: no echo target passes the self-check; nodes serve at their connect class", { released });

@@ -4,6 +4,14 @@ const TOKEN_REFRESH_BUFFER_MS = 60_000;
 // Maximum response body size for token endpoint responses (1MB)
 const MAX_TOKEN_RESPONSE_BYTES = 1_048_576;
 
+/** verify-key failed; `status` is the HTTP status (absent on network errors). */
+export class TokenVerifyError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = "TokenVerifyError";
+  }
+}
+
 export class TokenManager {
   private accessToken: string | null = null;
   private refreshTokenValue: string | null = null;
@@ -11,8 +19,23 @@ export class TokenManager {
   private apiUrl: string;
   private apiKey: string | null = null;
 
-  constructor(apiUrl: string) {
+  /**
+   * agentSecret: the deployment's DOMINUSNODE_AGENT_SECRET. Sent on
+   * verify-key/refresh so the API treats this first-party server as a verified
+   * agent instead of applying its per-IP auth limits to every remote session.
+   */
+  constructor(apiUrl: string, private readonly agentSecret: string = "") {
     this.apiUrl = apiUrl;
+  }
+
+  private authHeaders(): Record<string, string> {
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
+      "X-DominusNode-Agent": "mcp", // MCP identification
+    };
+    if (this.agentSecret) h["X-DominusNode-Agent-Secret"] = this.agentSecret;
+    return h;
   }
 
   async initialize(apiKey: string): Promise<void> {
@@ -20,11 +43,7 @@ export class TokenManager {
 
     const res = await fetch(`${this.apiUrl}/api/auth/verify-key`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
-        "X-DominusNode-Agent": "mcp", // MCP identification
-      },
+      headers: this.authHeaders(),
       body: JSON.stringify({ apiKey }),
       signal: AbortSignal.timeout(30_000),
       redirect: "error", // Reject redirects — prevents credential leakage
@@ -33,7 +52,7 @@ export class TokenManager {
     if (!res.ok) {
       // Cancel body instead of buffering — prevents OOM from oversized error response
       await res.body?.cancel();
-      throw new Error(`Failed to verify API key (HTTP ${res.status})`);
+      throw new TokenVerifyError(`Failed to verify API key (HTTP ${res.status})`, res.status);
     }
 
     // Response size limit to prevent OOM
@@ -104,11 +123,7 @@ export class TokenManager {
         if (this.refreshTokenValue) {
           const res = await fetch(`${this.apiUrl}/api/auth/refresh`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": USER_AGENT,
-              "X-DominusNode-Agent": "mcp", // MCP identification
-            },
+            headers: this.authHeaders(),
             body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
             signal: AbortSignal.timeout(30_000),
             redirect: "error", // Reject redirects

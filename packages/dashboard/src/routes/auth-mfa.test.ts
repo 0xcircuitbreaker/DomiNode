@@ -757,7 +757,7 @@ describe("MFA auth routes", () => {
           id: "user1",
           email: "test@example.com",
           status: "active",
-          is_admin: false, admin_role: "admin",
+          is_admin: false, admin_role: "none",
         },
         apiKey: { id: "ak1" },
       });
@@ -774,6 +774,22 @@ describe("MFA auth routes", () => {
       // verify-key now checks MFA — should call findMfaConfigByUserId
       // but since mock returns null (no MFA), tokens are still issued
       expect(mfaRepo.findMfaConfigByUserId).toHaveBeenCalledWith("user1");
+      // The refresh family is linked to the key it came from.
+      expect((refreshTokenRepo.storeToken as ReturnType<typeof vi.fn>).mock.calls.at(-1)![5]).toBe("ak1");
+    });
+
+    it("refuses to exchange an admin's API key for a session (even without MFA)", async () => {
+      for (const user of [
+        { id: "a1", email: "a@example.com", status: "active", is_admin: false, admin_role: "admin" },
+        { id: "a2", email: "b@example.com", status: "active", is_admin: true, admin_role: "none" },
+      ]) {
+        (userRepo.findUserByApiKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ user, apiKey: { id: "ak9" } });
+        const res = await request(createApp(), "POST", "/api/auth/verify-key", { apiKey: "dn_live_adminkey" });
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("ADMIN_KEY_SESSION_REFUSED");
+        expect(res.body.token).toBeUndefined();
+      }
+      expect(refreshTokenRepo.storeToken).not.toHaveBeenCalled();
     });
 
     it("refuses a team API key (no session for the key's creator)", async () => {
@@ -801,6 +817,7 @@ describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
   afterAll(() => {
     if (prev.login === undefined) delete process.env["ADMIN_HUMAN_LOGIN"]; else process.env["ADMIN_HUMAN_LOGIN"] = prev.login;
     if (prev.boot === undefined) delete process.env["ADMIN_BOOTSTRAP_EMAIL"]; else process.env["ADMIN_BOOTSTRAP_EMAIL"] = prev.boot;
+    delete process.env["ADMIN_BOOTSTRAP_TOKEN"];
   });
 
   it("404s every human auth route when the flag is off (default)", async () => {
@@ -852,16 +869,34 @@ describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
     expect(userRepo.createUser).not.toHaveBeenCalled();
   });
 
+  it("bootstrap: the address alone is refused without the bootstrap token", async () => {
+    process.env["ADMIN_HUMAN_LOGIN"] = "true";
+    process.env["ADMIN_BOOTSTRAP_EMAIL"] = "root@example.com";
+    process.env["ADMIN_BOOTSTRAP_TOKEN"] = "t".repeat(40);
+    (adminRepo.hasAnyAdmin as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    const app = createApp();
+    for (const bootstrapToken of [undefined, "wrong", "t".repeat(39)]) {
+      const res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!", bootstrapToken });
+      expect(res.status).toBe(403);
+    }
+    delete process.env["ADMIN_BOOTSTRAP_TOKEN"];
+    const res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!", bootstrapToken: "" });
+    expect(res.status).toBe(403);
+    expect(userRepo.createUser).not.toHaveBeenCalled();
+    (adminRepo.hasAnyAdmin as ReturnType<typeof vi.fn>).mockReset();
+  });
+
   it("bootstrap: only the named address, only while no admin exists", async () => {
     process.env["ADMIN_HUMAN_LOGIN"] = "true";
     process.env["ADMIN_BOOTSTRAP_EMAIL"] = "Root@Example.com";
+    process.env["ADMIN_BOOTSTRAP_TOKEN"] = "t".repeat(40);
     const app = createApp();
     // Different address
     let res = await request(app, "POST", "/api/auth/register", { email: "other@example.com", password: "Password1!" });
     expect(res.status).toBe(403);
     // An admin already exists
     (adminRepo.hasAnyAdmin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
-    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!" });
+    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!", bootstrapToken: "t".repeat(40) });
     expect(res.status).toBe(403);
     expect(userRepo.createUser).not.toHaveBeenCalled();
     // First admin
@@ -870,7 +905,7 @@ describe("human auth gate (ADMIN_HUMAN_LOGIN)", () => {
       id: "a1", email: "root@example.com", status: "active", is_admin: false, admin_role: "none", created_at: new Date(),
     });
     (adminRepo.bootstrapFirstAdmin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
-    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!" });
+    res = await request(app, "POST", "/api/auth/register", { email: "root@example.com", password: "Password1!", bootstrapToken: "t".repeat(40) });
     expect(res.status).toBe(201);
     expect(adminRepo.bootstrapFirstAdmin).toHaveBeenCalledWith("a1");
     expect((res.body.user as Record<string, unknown>).admin_role).toBe("admin");
@@ -944,6 +979,38 @@ describe("POST /api/auth/refresh (rotation race)", () => {
     expect(userRepo.revokeAllApiKeys).not.toHaveBeenCalled();
   });
 
+  it("a family whose originating API key was revoked is refused and revoked", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, revoked: false, rotated_at: null, api_key_id: "ak1", api_key_revoked: true });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(401);
+    expect(refreshTokenRepo.revokeFamily).toHaveBeenCalledWith("fam-1");
+    expect(refreshTokenRepo.storeToken).not.toHaveBeenCalled();
+  });
+
+  it("rotation keeps the family's API key link", async () => {
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, revoked: false, rotated_at: null, api_key_id: "ak1", api_key_revoked: false });
+    (dbQueryMock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [{ family_id: "fam-1" }], rowCount: 1 });
+    const res = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(res.status).toBe(200);
+    expect((refreshTokenRepo.storeToken as ReturnType<typeof vi.fn>).mock.calls[0][5]).toBe("ak1");
+  });
+
+  it("a token issued in the same second just after a password change is accepted (change-password)", async () => {
+    const changed = new Date(Math.floor(Date.now() / 1000) * 1000 + 400);
+    (verifyRefreshToken as ReturnType<typeof vi.fn>).mockReturnValue({ userId: "user1", iat: Math.floor(changed.getTime() / 1000) });
+    (userRepo.findUserById as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "user1", email: "a@b.c", status: "active", is_admin: false, admin_role: "none", password_changed_at: changed,
+    });
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, created_at: new Date(changed.getTime() + 5), revoked: false, rotated_at: null });
+    (dbQueryMock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [{ family_id: "fam-1" }], rowCount: 1 });
+    expect((await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" })).status).toBe(200);
+    // A token stored before the change is still refused.
+    (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, created_at: new Date(changed.getTime() - 5), revoked: false, rotated_at: null });
+    const old = await request(createApp(), "POST", "/api/auth/refresh", { refreshToken: "rt" });
+    expect(old.status).toBe(401);
+    expect(old.body.error).toContain("password change");
+  });
+
   it("successful rotation stamps rotated_at", async () => {
     (refreshTokenRepo.findTokenByHash as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ...base, revoked: false, rotated_at: null });
     (dbQueryMock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [{ family_id: "fam-1" }], rowCount: 1 });
@@ -951,5 +1018,18 @@ describe("POST /api/auth/refresh (rotation race)", () => {
     expect(res.status).toBe(200);
     expect(String((dbQueryMock as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain("rotated_at = now()");
     expect((refreshTokenRepo.storeToken as ReturnType<typeof vi.fn>).mock.calls[0][4]).toBe("client:");
+  });
+});
+
+describe("login limiter keys IPv6 by /64", () => {
+  it("rotating addresses inside one /64 share the per-IP budget and the address+email lockout", async () => {
+    const { __loginLimitsForTest: L } = await import("./auth.js");
+    L.reset();
+    for (let i = 1; i <= 20; i++) L.recordIpLoginAttempt(`2001:db8:1:2::${i.toString(16)}`);
+    expect(L.checkIpLoginLimit("2001:db8:1:2:ffff::1")).toMatch(/Too many/);
+    expect(L.checkIpLoginLimit("2001:db8:1:3::1")).toBeNull();
+    for (let i = 1; i <= 5; i++) L.recordLoginFailure(`2001:db8:9:9::${i}`, "ops@example.com");
+    expect(L.checkLoginLockout("2001:db8:9:9::abcd", "ops@example.com")).toMatch(/locked/);
+    L.reset();
   });
 });

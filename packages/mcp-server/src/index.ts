@@ -40,6 +40,14 @@ async function main(): Promise<void> {
     throw err;
   }
 
+  if (httpConfig && !config.mcpAgentSecret) {
+    // Without the agent secret every remote session's verify-key/refresh is
+    // held to the API's per-IP auth limits (a handful of sessions per minute
+    // for all agents together, and lockable by bogus keys).
+    process.stderr.write("Configuration error: remote HTTP mode requires DOMINUSNODE_AGENT_SECRET (the API's MCP_AGENT_SECRET)\n");
+    process.exit(1);
+  }
+
   if (httpConfig) {
     // ── Remote Mode (Streamable HTTP) ───────────────────────────────
     // Each request authenticates with its own Bearer dn_live_ key; sessions are isolated per key.

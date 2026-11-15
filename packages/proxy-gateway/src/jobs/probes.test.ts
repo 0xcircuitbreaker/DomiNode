@@ -410,6 +410,27 @@ describe("pending nodes: retries, full coverage, self-check", () => {
     expect((await selfCheckTarget(target, 1000, dial, (async () => ok("1.1.1.1", "other")) as never)).ok).toBe(false);
   });
 
+  it("self-check reports when the API does not accept this gateway's PROBE_AUTH_SECRET", async () => {
+    const prev = process.env["PROBE_AUTH_SECRET"];
+    process.env["PROBE_AUTH_SECRET"] = "p".repeat(40);
+    try {
+      const dial = async () => stream();
+      const plain = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => ok("198.51.100.1", nonce));
+      expect(await selfCheckTarget(target, 1000, dial, plain as typeof exchange)).toEqual({ ok: true, authRejected: true });
+      const accepted = vi.fn(async (_s: Duplex, _t: unknown, nonce: string) => {
+        const body = JSON.stringify({ ip: "198.51.100.1", nonce, gateway: true });
+        return `HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n${body}`;
+      });
+      expect(await selfCheckTarget(target, 1000, dial, accepted as typeof exchange)).toEqual({ ok: true });
+      const h = new ProbeHealth([target], async () => ({ ok: true, authRejected: true }));
+      await h.refresh();
+      expect(h.healthy).toBe(true);
+      expect(h.authRejected).toHaveLength(1);
+    } finally {
+      if (prev === undefined) delete process.env["PROBE_AUTH_SECRET"]; else process.env["PROBE_AUTH_SECRET"] = prev;
+    }
+  });
+
   it("ProbeHealth keeps only passing targets in its live list", async () => {
     const t2 = { ...target, host: "b.example.com" };
     const h = new ProbeHealth([target, t2], async (t) => ({ ok: t.host === "b.example.com", reason: "x" }));

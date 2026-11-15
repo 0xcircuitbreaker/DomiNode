@@ -36,12 +36,14 @@ router.get("/probe/echo", (req, res) => {
     res.status(400).json({ error: "nonce must be 16-64 characters of [A-Za-z0-9_-]" });
     return;
   }
-  const allowed = isGatewayProbe(nonce, req.headers["x-dn-probe-auth"]) ? gatewayLimiter.hit("gateway") : limiter.hit(ip);
+  const gateway = isGatewayProbe(nonce, req.headers["x-dn-probe-auth"]);
+  const allowed = gateway ? gatewayLimiter.hit("gateway") : limiter.hit(ip);
   if (!ip || !allowed) {
     res.status(429).json({ error: "Too many probe requests" });
     return;
   }
-  res.json({ ip, nonce });
+  // `gateway: true` tells the gateway's self-check its probe signature was accepted.
+  res.json(gateway ? { ip, nonce, gateway: true } : { ip, nonce });
 });
 
 export function _resetProbeLimiter(): void {

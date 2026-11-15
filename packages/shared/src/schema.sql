@@ -2372,3 +2372,9 @@ DO $$ BEGIN
     CHECK ((community_owners_online IS NULL OR community_owners_online BETWEEN 0 AND 100000000)
        AND (community_paid_owners_24h IS NULL OR community_paid_owners_24h BETWEEN 0 AND 100000000));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Refresh-token families minted by /api/auth/verify-key remember the API key
+-- they came from: revoking the key revokes them, and /refresh refuses a token
+-- whose originating key is revoked.
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS api_key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_api_key ON refresh_tokens (api_key_id) WHERE api_key_id IS NOT NULL;

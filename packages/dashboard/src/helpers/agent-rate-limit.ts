@@ -160,6 +160,47 @@ export async function isVerifiedAgentAsync(
   return { verified: false };
 }
 
+/** Recently unknown/revoked das_ secret hashes, so a bogus header cannot force a DB lookup per request. */
+const _unknownAgentSecrets = new Map<string, number>();
+const UNKNOWN_SECRET_TTL_MS = 60_000;
+
+/**
+ * Middleware that resolves a per-agent das_ secret (DB lookup, cached 60 s)
+ * before the rate limiters run, so isVerifiedAgent (synchronous, cache-only)
+ * sees it on every request and the agent actually gets its boosted limits.
+ * Never rejects: a lookup failure just leaves the base limit.
+ */
+export function resolveAgentSecret() {
+  return (req: Request, _res: unknown, next: () => void): void => {
+    const raw = req.headers["x-dominusnode-agent-secret"];
+    const secret = typeof raw === "string" ? raw : "";
+    if (req.headers["x-dominusnode-agent"] !== "mcp" || !secret.startsWith("das_") || secret.length !== 68) {
+      next();
+      return;
+    }
+    const hash = crypto.createHash("sha256").update(secret).digest("hex");
+    const now = Date.now();
+    const cached = _agentSecretCache.get(hash);
+    const unknownUntil = _unknownAgentSecrets.get(hash);
+    if ((cached && cached.expires > now) || (unknownUntil !== undefined && unknownUntil > now)) {
+      next();
+      return;
+    }
+    isVerifiedAgentAsync(req)
+      .then((r) => {
+        if (!r.verified) {
+          if (_unknownAgentSecrets.size >= MAX_AGENT_SECRET_CACHE_SIZE) {
+            for (const [k, v] of _unknownAgentSecrets) if (v <= now) _unknownAgentSecrets.delete(k);
+            if (_unknownAgentSecrets.size >= MAX_AGENT_SECRET_CACHE_SIZE) _unknownAgentSecrets.clear();
+          }
+          _unknownAgentSecrets.set(hash, now + UNKNOWN_SECRET_TTL_MS);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => next());
+  };
+}
+
 /**
  * Drop-in replacement for rateLimit() that boosts `max` for verified MCP agents.
  *
