@@ -119,6 +119,12 @@ export async function validateWebhooks(
   for (let i = 0; i < hooks.length; i++) {
     const r = await resolve(hooks[i]!.url.hostname.replace(/^\[|\]$/g, ""));
     if (!r.allowed) {
+      // A transient resolver failure must not take the API down (alerting is
+      // optional and every send re-checks); only blocked addresses are fatal.
+      if (r.reason === "DNS resolution failed") {
+        log.warn("ops alert webhook host did not resolve at startup; continuing", { entry: i + 1 });
+        continue;
+      }
       throw new OpsAlertConfigError(`OPS_ALERT_WEBHOOKS: entry ${i + 1} rejected (${r.reason ?? "blocked"})`);
     }
   }
@@ -280,6 +286,26 @@ export function pinnedLookup(addresses: string[]): LookupFunction {
  * POST with an SSRF check per send, the connection pinned to the vetted
  * addresses (DNS rebinding), no redirects, 5 s timeout, 64 KiB response cap.
  */
+export const WEBHOOK_DEADLINE_MS = 10_000;
+export const WEBHOOK_MAX_RESPONSE_BYTES = 64 * 1024;
+
+/** Drain a response, destroying it once it exceeds `maxBytes`. */
+export function drainCapped(res: NodeJS.ReadableStream & { destroy(err?: Error): void }, maxBytes: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let n = 0;
+    res.on("data", (chunk: Buffer | string) => {
+      n += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+      if (n > maxBytes) {
+        res.destroy();
+        reject(new Error("webhook response too large"));
+      }
+    });
+    res.on("end", () => resolve());
+    res.on("error", reject);
+    res.on("close", () => reject(new Error("webhook response closed")));
+  });
+}
+
 export const defaultSender: Sender = async (hook, body, headers) => {
   const r = await resolveAndCheck(hook.url.hostname.replace(/^\[|\]$/g, ""));
   if (!r.allowed || !r.addresses || r.addresses.length === 0) throw new Error("webhook host rejected by SSRF check");
@@ -291,10 +317,12 @@ export const defaultSender: Sender = async (hook, body, headers) => {
       lookup,
       timeout: 5000,
     }, (res) => {
-      res.resume();
-      res.on("end", () => resolve(res.statusCode ?? 0));
-      res.on("error", reject);
+      drainCapped(res, WEBHOOK_MAX_RESPONSE_BYTES).then(() => resolve(res.statusCode ?? 0), reject);
     });
+    // Absolute deadline: the socket idle timeout alone never fires on a trickling endpoint.
+    const deadline = setTimeout(() => req.destroy(new Error("webhook deadline exceeded")), WEBHOOK_DEADLINE_MS);
+    deadline.unref();
+    req.on("close", () => clearTimeout(deadline));
     req.on("timeout", () => req.destroy(new Error("webhook timed out")));
     req.on("error", (e) => reject(new Error(`webhook request failed: ${(e as NodeJS.ErrnoException).code ?? "error"}`)));
     req.end(body);
@@ -302,6 +330,7 @@ export const defaultSender: Sender = async (hook, body, headers) => {
   if (status < 200 || status >= 300) throw new Error(`webhook returned HTTP ${status}`);
 };
 
+export const EVALUATION_WATCHDOG_MS = 60_000;
 export const MAX_DEDUPE_ENTRIES = 1000;
 export const MAX_RECENT = 200;
 const NODE_WINDOW_MS = 10 * 60_000;
@@ -508,12 +537,28 @@ export class OpsAlerter {
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      if (this.running) return;
-      this.running = true;
-      this.evaluate().catch((err) => log.error("ops alert evaluation failed", { error: err instanceof Error ? err.message : String(err) }))
-        .finally(() => { this.running = false; });
+      void this.tick();
     }, this.config.intervalSec * 1000);
     this.timer.unref();
+  }
+
+  /** One guarded evaluation; a watchdog releases `running` if evaluate() hangs. */
+  async tick(watchdogMs = EVALUATION_WATCHDOG_MS): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    let timer: NodeJS.Timeout | undefined;
+    const watchdog = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("evaluation watchdog expired")), watchdogMs);
+      timer.unref();
+    });
+    try {
+      await Promise.race([this.evaluate(), watchdog]);
+    } catch (err) {
+      log.error("ops alert evaluation failed", { error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      clearTimeout(timer);
+      this.running = false;
+    }
   }
 
   stop(): void {

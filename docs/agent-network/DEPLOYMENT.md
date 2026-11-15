@@ -943,12 +943,20 @@ PersistentKeepalive = 25
 
 `sudo systemctl enable --now wg-quick@wg0` on both. Firewall on the home box so
 only the VPS reaches Postgres, and only over wg0 (Docker-published ports bypass
-the INPUT chain, so filter in `DOCKER-USER`):
+the INPUT chain, so filter in `DOCKER-USER`). Match only the published
+(DNAT'ed) flow with conntrack: a plain `--dport 5432` rule also matches the
+api/migrate -> postgres traffic on the internal Docker bridge whenever
+`br_netfilter` is loaded (`net.bridge.bridge-nf-call-iptables=1`), and the
+coordinator loses its own database. The installer prints these rules for your
+`DB_WG_BIND`:
 
 ```bash
-sudo iptables -I DOCKER-USER -p tcp --dport 5432 ! -i wg0 -j DROP
-sudo iptables -I DOCKER-USER -i wg0 -p tcp --dport 5432 ! -s 10.66.0.2 -j DROP
+sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdstport 5432 ! -i wg0 -j DROP
+sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctorigdstport 5432 ! -s 10.66.0.2 -j DROP
 ```
+
+After adding them, confirm the api still reaches Postgres:
+`docker compose exec api node -e "require('net').connect(5432,'postgres').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"`.
 
 Persist these with your distribution's tool (`iptables-persistent`, nftables).
 
