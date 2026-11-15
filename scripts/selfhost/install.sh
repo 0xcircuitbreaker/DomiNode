@@ -251,6 +251,12 @@ if [ "$ROLE_SEL" = coordinator ]; then
       ip -o -4 addr show type wireguard 2>/dev/null | awk '{split($4,a,"/"); print a[1]}' | grep -qxF "$DB_WG" \
         || die "DB_WG_BIND $DB_WG is not assigned to a WireGuard interface (bring wg0 up first; ALLOW_NON_WG_DB_BIND=1 overrides)"
     fi
+    # Firewall rules for the published Postgres port. Match the DNAT'ed flow
+    # (conntrack) so the api/migrate -> postgres bridge traffic is untouched
+    # when br_netfilter is loaded.
+    echo "Restrict Postgres to the gateway over wg0 (then persist them):"
+    echo "  sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdst $DB_WG --ctorigdstport 5432 ! -i wg0 -j DROP"
+    echo "  sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctorigdst $DB_WG --ctorigdstport 5432 ! -s <gateway wg address> -j DROP"
     # Docker must start after wg0, or the Postgres bind fails at boot.
     if [ "$NO_START" -eq 0 ] && [ -d /run/systemd/system ]; then
       dropin=/etc/systemd/system/docker.service.d/10-after-wg.conf

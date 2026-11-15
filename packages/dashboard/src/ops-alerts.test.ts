@@ -23,7 +23,7 @@ vi.mock("./middleware/admin.js", () => ({
 
 import {
   parseWebhooks, loadOpsAlertConfig, validateWebhooks, OpsAlertConfigError, OpsAlerter, formatPayload,
-  recordOpsEvent, countOpsEvents, resetOpsEvents, setOpsAlerter, v1ErrorCounter, MAX_DEDUPE_ENTRIES,
+  recordOpsEvent, countOpsEvents, resetOpsEvents, setOpsAlerter, v1ErrorCounter, MAX_DEDUPE_ENTRIES, drainCapped,
   type OpsMetrics, type OpsAlertConfig,
 } from "./ops-alerts.js";
 import router from "./routes/admin-ops-alerts.js";
@@ -285,5 +285,35 @@ describe("pinnedLookup (DNS rebinding pin)", () => {
     const lk = pinnedLookup(["93.184.216.34"]);
     const r = await new Promise<unknown[]>((res) => lk("x.example", { family: 6 }, (...a: unknown[]) => res(a)));
     expect(r[0]).toBeInstanceOf(Error);
+  });
+});
+
+describe("prelaunch hardening", () => {
+  it("startup tolerates a webhook host that does not resolve, but still rejects blocked addresses", async () => {
+    const hooks = parseWebhooks(`https://alerts.example/hook`);
+    await expect(validateWebhooks(hooks, async () => ({ allowed: false, reason: "DNS resolution failed" }))).resolves.toBeUndefined();
+    await expect(validateWebhooks(hooks, async () => ({ allowed: false, reason: "private IP" }))).rejects.toBeInstanceOf(OpsAlertConfigError);
+  });
+
+  it("drainCapped destroys a response past the cap", async () => {
+    const { PassThrough } = await import("node:stream");
+    const res = new PassThrough();
+    const p = drainCapped(res, 10);
+    res.write(Buffer.alloc(11));
+    await expect(p).rejects.toThrow(/too large/);
+    expect(res.destroyed).toBe(true);
+    const ok = new PassThrough();
+    const q = drainCapped(ok, 10);
+    ok.end(Buffer.alloc(5));
+    await expect(q).resolves.toBeUndefined();
+  });
+
+  it("a hung evaluation is released by the watchdog so later ticks run", async () => {
+    const { a } = setup();
+    let calls = 0;
+    a.evaluate = (() => { calls++; return calls === 1 ? new Promise(() => {}) : Promise.resolve([]); }) as typeof a.evaluate;
+    await a.tick(20);
+    await a.tick(20);
+    expect(calls).toBe(2);
   });
 });

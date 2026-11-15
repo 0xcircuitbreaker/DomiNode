@@ -1074,3 +1074,16 @@ describe("pre-launch: installer temp files and compose log rotation", () => {
     });
   }
 });
+
+describe("DOCKER-USER Postgres rules (br_netfilter safe)", () => {
+  it("never drops bare dport 5432, which would cut api -> postgres on the bridge", () => {
+    for (const f of ["docs/agent-network/DEPLOYMENT.md", "scripts/selfhost/install.sh"]) {
+      const lines = fs.readFileSync(path.join(ROOT, f), "utf8").split("\n").filter((l) => l.includes("DOCKER-USER") && l.includes("5432") && l.includes("-j DROP"));
+      expect(lines.length, f).toBeGreaterThan(0);
+      for (const l of lines) {
+        expect(l, f).not.toMatch(/--dport 5432/);
+        expect(l, f).toMatch(/--ctstate DNAT --ctorigdst.*port 5432|--ctstate DNAT.*--ctorigdstport 5432/);
+      }
+    }
+  });
+});
