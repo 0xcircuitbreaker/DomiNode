@@ -1,0 +1,12 @@
+{
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "high": true,
+  "allowlist": [
+    // GHSA-fc5q-39xc-vjpf: ReDoS in picomatch <=4.0.7, no patched release yet.
+    // Dev/build tooling only (vite, vitest, eslint/typescript-eslint via
+    // tinyglobby, tailwind, chokidar); no production Docker image ships
+    // picomatch. Remove this entry once picomatch publishes a fix.
+    // packages/shared/tests/audit-ci-allowlist.test.ts pins this list.
+    "GHSA-fc5q-39xc-vjpf",
+  ],
+}
