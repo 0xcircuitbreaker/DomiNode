@@ -150,7 +150,7 @@ describe("dominusnode-mcp proxy", () => {
     c.write(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: ${basic(fwd!.username!)}\r\n\r\n`);
     for (let i = 0; i < 100 && !gwSock; i++) await new Promise((r) => setTimeout(r, 20));
     expect(gwSock).toBeDefined();
-    const closed = new Promise<void>((r) => gwSock!.on("close", () => r()));
+    const closed = new Promise<void>((r) => { gwSock!.on("end", () => r()); gwSock!.on("close", () => r()); });
     c.destroy();
     await closed;
   });

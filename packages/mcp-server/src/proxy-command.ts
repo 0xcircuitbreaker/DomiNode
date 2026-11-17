@@ -185,7 +185,9 @@ export async function startForwarder(gw: ForwarderGateway, apiKey: string, opts:
     };
     up.on("error", onErr);
     // Client gone before the gateway answered: drop the gateway connection now, not at the timeout.
-    client.on("close", () => { if (!established) up.destroy(); });
+    const clientGone = (): void => { if (!established) up.destroy(); };
+    client.on("end", clientGone);
+    client.on("close", clientGone);
     up.on("secureConnect", () => {
       up.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\nProxy-Authorization: ${auth}\r\n\r\n`);
     });

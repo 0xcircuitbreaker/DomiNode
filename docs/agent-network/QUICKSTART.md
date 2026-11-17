@@ -100,7 +100,7 @@ with your key added. The key stays in `DOMINUSNODE_API_KEY` and never reaches th
 ```bash
 export DOMINUSNODE_API_KEY=dn_live_...
 npx @dominusnode/mcp-server proxy --port 3128 --flags country-US-class-residential
-# prints: listening on http://127.0.0.1:3128, proxy username: <token> (password: any)
+# prints: listening on 127.0.0.1:3128, proxy username: <token> (password: any)
 ```
 
 Or from code with the Node SDK: `const fwd = await dn.proxy.startForwarder({ flags: "country-US" })`.
