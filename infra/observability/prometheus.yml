@@ -1,0 +1,53 @@
+# DominusNode Prometheus scrape config (example). Replace example.org hosts.
+#
+# Endpoints and their access rules (see docs/agent-network/OBSERVABILITY.md):
+#   - Gateway /metrics on the HTTP proxy listener (:8080). Loopback callers are
+#     allowed without auth; any other caller needs
+#     "Authorization: Bearer <PROXY_STATS_SECRET>".
+#   - API /metrics on :3000 is loopback-only (403 for everyone else, no token
+#     accepted). Prometheus must run on the API host with host networking, or
+#     scrape through a local agent/tunnel that connects from 127.0.0.1.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    deployment: dominusnode
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Uncomment and point at your Alertmanager.
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager.example.org:9093"]
+
+scrape_configs:
+  # Remote gateway (VPS). Bearer token read from a file so it never sits in
+  # this config or in process args. Keep the scrape on a private path
+  # (WireGuard, 10.66.0.x-style address) when you can.
+  - job_name: dominusnode-gateway
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/proxy_stats_secret
+    static_configs:
+      - targets: ["gateway.example.org:8080"]
+        labels:
+          role: gateway
+
+  # API on the same host as Prometheus (loopback-only endpoint).
+  - job_name: dominusnode-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["127.0.0.1:3000"]
+        labels:
+          role: api
+
+  # Prometheus itself.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]

@@ -1,0 +1,36 @@
+# Optional observability overlay: Prometheus + Grafana on the API host.
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+# Host networking is required because the API /metrics endpoint answers
+# loopback callers only. Put the gateway bearer token in
+# infra/observability/secrets/proxy_stats_secret (chmod 600, not committed).
+# See docs/agent-network/OBSERVABILITY.md.
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./infra/observability/secrets:/etc/prometheus/secrets:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3001"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:
