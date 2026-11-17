@@ -16,6 +16,8 @@ export interface SelectOpts {
   country?: string;
   /** Requested exit class; unset = any eligible NON-masked node. */
   ipClass?: ExitClass;
+  /** asn-<n>: the node's gateway-derived egress ASN (LiveNode.asn) must equal it. */
+  asn?: number;
   requesterUserId: string;
   requesterWallet?: string;
   requesterTeamId?: string;
@@ -106,6 +108,8 @@ export class NodeSelector {
     if (!n.country || this.isSanctioned(n.country, policy)) return false;
     if (o.country && n.country !== o.country.toUpperCase()) return false;
     if (o.ipClass && n.ipClass !== o.ipClass) return false;
+    // ASN is the gateway's lookup of the egress IP, never node-reported; unknown never matches.
+    if (o.asn !== undefined && (n.asn === null || n.asn !== o.asn)) return false;
     // Masked (anonymizer) exits serve only explicit class-masked requests.
     if (!o.ipClass && n.ipClass === "masked") return false;
     if (o.excludeIpClasses && o.excludeIpClasses.includes(n.ipClass)) return false;
