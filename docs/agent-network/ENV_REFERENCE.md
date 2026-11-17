@@ -127,6 +127,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `ADMIN_HUMAN_LOGIN` |  | `src/helpers/human-auth.ts` |
 | `ADMIN_MAX_CREDIT_CENTS` | `50000` | `src/routes/admin.ts` |
 | `AGENT_RATE_LIMIT_MULTIPLIER` | `""` | `src/helpers/agent-rate-limit.ts` |
+| `API_METRICS_SECRET` |  | `src/server.ts` |
 | `APP_URL` | `""`, `http://localhost:5173`, `https://dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/teams.ts` |
 | `COOKIE_SECURE` |  | `src/helpers/cookies.ts` |
 | `COORDINATOR_HOSTNAMES` |  | `src/routes/federation.ts` |

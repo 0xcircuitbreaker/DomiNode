@@ -1,0 +1,104 @@
+# DominusNode alert rules. Every expression uses only metrics emitted by
+# packages/proxy-gateway/src/stats.ts and packages/dashboard/src/server.ts
+# (plus Prometheus' own synthetic `up`). Enforced by
+# packages/shared/tests/observability-kit.test.ts.
+# Runbooks: docs/agent-network/OBSERVABILITY.md
+groups:
+  - name: dominusnode-availability
+    rules:
+      - alert: GatewayDown
+        expr: up{job="dominusnode-gateway"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Relay gateway /metrics unreachable"
+          runbook: "OBSERVABILITY.md#gatewaydown"
+      - alert: ApiDown
+        expr: up{job="dominusnode-api"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "API /metrics unreachable"
+          runbook: "OBSERVABILITY.md#apidown"
+      - alert: ApiDatabaseUnhealthy
+        expr: dominusnode_api_up == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "API cannot reach PostgreSQL (SELECT 1 failed)"
+          runbook: "OBSERVABILITY.md#apidatabaseunhealthy"
+      - alert: GatewayDegraded
+        expr: dominusnode_proxy_status == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Gateway reports degraded status"
+          runbook: "OBSERVABILITY.md#gatewaydegraded"
+      - alert: GatewayRestarting
+        expr: dominusnode_proxy_uptime_seconds < 300
+        for: 0m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Gateway restarted in the last 5 minutes"
+          runbook: "OBSERVABILITY.md#gatewayrestarting"
+      - alert: ApiRestarting
+        expr: dominusnode_api_uptime_seconds < 300
+        for: 0m
+        labels:
+          severity: warn
+        annotations:
+          summary: "API restarted in the last 5 minutes"
+          runbook: "OBSERVABILITY.md#apirestarting"
+
+  - name: dominusnode-traffic
+    rules:
+      - alert: GatewayHighErrorRate
+        expr: |
+          (rate(dominusnode_proxy_errors_total[10m]) / clamp_min(rate(dominusnode_proxy_requests_total[10m]), 0.01)) > 0.10
+          and rate(dominusnode_proxy_requests_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "More than 10% of relay requests are failing"
+          runbook: "OBSERVABILITY.md#gatewayhigherrorrate"
+      - alert: GatewayNoTraffic
+        expr: rate(dominusnode_proxy_requests_total[30m]) == 0 and dominusnode_proxy_uptime_seconds > 1800
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "No relay requests for 30 minutes"
+          runbook: "OBSERVABILITY.md#gatewaynotraffic"
+      - alert: GatewayHighLatency
+        expr: dominusnode_proxy_latency_ms{quantile="0.95"} > 5000
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "p95 connect latency above 5s"
+          runbook: "OBSERVABILITY.md#gatewayhighlatency"
+
+  - name: dominusnode-resources
+    rules:
+      - alert: ApiHighMemory
+        expr: dominusnode_api_memory_rss_bytes > 1.5e9
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "API RSS above 1.5 GB"
+          runbook: "OBSERVABILITY.md#apihighmemory"
+      - alert: ApiHeapNearLimit
+        expr: dominusnode_api_memory_heap_used_bytes / dominusnode_api_memory_heap_total_bytes > 0.95
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "API heap more than 95% used"
+          runbook: "OBSERVABILITY.md#apiheapnearlimit"
