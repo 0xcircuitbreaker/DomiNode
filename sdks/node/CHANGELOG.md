@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `proxy.startForwarder()`: loopback HTTP proxy for browsers that relays over TLS 1.3 to the gateway and injects the key; per-start token required unless `allowTokenless`.
+
 ## [2.4.0] - 2026-11-14
 
 Additive release (SDK surface: 15 resources, 73 methods).
