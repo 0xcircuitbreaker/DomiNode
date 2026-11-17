@@ -31,4 +31,4 @@ jobs:
         continue-on-error: true
 
       - name: Run audit-ci (blocking — fails on high/critical vulnerabilities)
-        run: npx audit-ci --high
+        run: npx audit-ci --high --config audit-ci.jsonc
