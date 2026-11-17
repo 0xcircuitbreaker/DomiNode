@@ -1,18 +1,30 @@
-# Optional observability overlay: Prometheus + Grafana on the API host.
-#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
-# Host networking is required because the API /metrics endpoint answers
-# loopback callers only. Put the gateway bearer token in
-# infra/observability/secrets/proxy_stats_secret (chmod 600, not committed).
-# See docs/agent-network/OBSERVABILITY.md.
+# Optional observability overlay: Prometheus + Grafana next to the API.
+#   docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+# Prometheus joins the compose `backend` network and scrapes the API at
+# api:3000 with "Bearer API_METRICS_SECRET" (the API refuses non-loopback
+# scrapes without it, and container traffic is never loopback). The gateway is
+# scraped over its TLS proxy port (8443) with "Bearer PROXY_STATS_SECRET".
+# Secret files live in infra/observability/secrets/ (git-ignored):
+#   proxy_stats_secret, api_metrics_secret  (owner 65534, mode 0400: Prometheus user)
+#   grafana_admin_password                  (owner 472,   mode 0400: Grafana user)
+# Both UIs are published on 127.0.0.1 only. See docs/agent-network/OBSERVABILITY.md.
 services:
+  api:
+    environment:
+      # Same value as infra/observability/secrets/api_metrics_secret (32+ chars).
+      API_METRICS_SECRET: ${API_METRICS_SECRET:?set API_METRICS_SECRET (32+ chars) for the observability overlay}
+
   prometheus:
     image: prom/prometheus:v2.54.1
-    network_mode: host
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=30d
-      - --web.listen-address=127.0.0.1:9090
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - backend
     volumes:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -21,14 +33,21 @@ services:
 
   grafana:
     image: grafana/grafana:11.2.0
-    network_mode: host
     restart: unless-stopped
     environment:
-      GF_SERVER_HTTP_ADDR: 127.0.0.1
-      GF_SERVER_HTTP_PORT: "3001"
+      GF_SERVER_HTTP_PORT: "3000"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Never run with the default admin/admin login.
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/observability-secrets/grafana_admin_password
+    ports:
+      - "127.0.0.1:3001:3000"
+    networks:
+      - backend
     volumes:
+      - ./infra/observability/secrets/grafana_admin_password:/run/observability-secrets/grafana_admin_password:ro
       - grafana-data:/var/lib/grafana
 
 volumes:

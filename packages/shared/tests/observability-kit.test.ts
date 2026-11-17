@@ -115,6 +115,41 @@ describe("observability kit", () => {
     expect(prom).toContain("/etc/prometheus/alerts.yml");
     expect(prom).toMatch(/credentials_file:/);
     const hosts = [...prom.matchAll(/"([a-z0-9.-]+):\d+"/gi)].map((m) => m[1]);
-    for (const h of hosts) expect(h === "127.0.0.1" || h.endsWith("example.org"), h).toBe(true);
+    for (const h of hosts) {
+      expect(["127.0.0.1", "localhost", "api"].includes(h) || h.endsWith("example.org"), h).toBe(true);
+    }
+  });
+
+  it("scrapes the gateway over its TLS port and the API with a bearer token", () => {
+    const prom = read("infra/observability/prometheus.yml");
+    const job = (name: string) => {
+      const start = prom.indexOf(`job_name: ${name}`);
+      expect(start, name).toBeGreaterThan(-1);
+      const next = prom.indexOf("job_name:", start + 1);
+      return prom.slice(start, next === -1 ? undefined : next);
+    };
+    const gw = job("dominusnode-gateway");
+    // Plaintext :8080 is loopback-only in production and would carry the token in clear.
+    expect(gw).toMatch(/scheme: https/);
+    expect(gw).toMatch(/:8443"/);
+    expect(gw).not.toMatch(/:8080"/);
+    expect(gw).toMatch(/credentials_file: \/etc\/prometheus\/secrets\/proxy_stats_secret/);
+    const api = job("dominusnode-api");
+    expect(api).toMatch(/credentials_file: \/etc\/prometheus\/secrets\/api_metrics_secret/);
+  });
+
+  it("compose overlay keeps UIs on loopback and never uses Grafana's default login", () => {
+    const compose = read("docker-compose.observability.yml");
+    expect(compose).not.toMatch(/network_mode:\s*host/);
+    const published = [...compose.matchAll(/^\s*-\s*"([^"]+:\d+:\d+)"/gm)].map((m) => m[1]);
+    expect(published.length).toBe(2);
+    for (const p of published) expect(p.startsWith("127.0.0.1:"), p).toBe(true);
+    expect(compose).toMatch(/GF_SECURITY_ADMIN_PASSWORD__FILE:/);
+    expect(compose).toMatch(/API_METRICS_SECRET: \$\{API_METRICS_SECRET:\?/);
+  });
+
+  it("the API /metrics handler accepts the API_METRICS_SECRET bearer", () => {
+    const server = read("packages/dashboard/src/server.ts");
+    expect(server).toMatch(/metricsAccessAllowed\(req\.socket\.remoteAddress, req\.headers\["authorization"\], process\.env\["API_METRICS_SECRET"\]\)/);
   });
 });

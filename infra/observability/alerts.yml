@@ -39,7 +39,7 @@ groups:
           summary: "Gateway reports degraded status"
           runbook: "OBSERVABILITY.md#gatewaydegraded"
       - alert: GatewayRestarting
-        expr: changes(dominusnode_proxy_uptime_seconds[15m]) > 0 and dominusnode_proxy_uptime_seconds < 300
+        expr: dominusnode_proxy_uptime_seconds < 300
         for: 0m
         labels:
           severity: warn
