@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const ROOT = resolve(__dirname, "../../..");
 
 function stripJsonComments(src: string): string {
-  return src.replace(/^\s*\/\/.*$/gm, "");
+  return src.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[\]}])/g, "$1");
 }
 
 describe("audit-ci allowlist", () => {
