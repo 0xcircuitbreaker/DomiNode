@@ -55,3 +55,6 @@ target/
 # Deployment secrets and certificates (docker-compose.prod.yml)
 /secrets/
 /certs/
+
+# Observability overlay secrets (bearer token for gateway /metrics)
+/infra/observability/secrets/

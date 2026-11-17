@@ -7,7 +7,7 @@ import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
-import { parseProxyOptions, type ProxyOptions } from "./auth.js";
+import { parseProxyOptions, unsupportedTargetingMessage, type ProxyOptions } from "./auth.js";
 import { checkClientCountry } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
@@ -213,6 +213,15 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     return;
   }
 
+  // city-/state- cannot be honored: fail auth rather than pick a random exit.
+  if (unsupportedTargetingMessage(proxyOptions)) {
+    clearTimeout(totalHandshakeTimer);
+    log.info("SOCKS5 unsupported targeting flag", { flags: proxyOptions.unsupportedTargeting });
+    clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
+    clientSocket.end();
+    return;
+  }
+
   // Auth success
   clientSocket.write(Buffer.from([USERPASS_VER, 0x00]));
 
@@ -385,6 +394,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
     upstream = await openRelayStream(relay, {
       country: proxyOptions.country,
       ipClass: proxyOptions.ipClass,
+      asn: proxyOptions.asn,
       requesterUserId: userId,
       requesterWallet: walletAddress ?? undefined,
       requesterTeamId: teamId ?? undefined,

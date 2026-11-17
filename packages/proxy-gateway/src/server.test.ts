@@ -67,7 +67,7 @@ vi.mock("./x402-handler.js", () => ({
 }));
 
 vi.mock("./auth.js", async (orig) => ({
-  parseProxyOptions: ((await orig()) as { parseProxyOptions: unknown }).parseProxyOptions,
+  ...((await orig()) as object),
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
 }));
 
@@ -136,7 +136,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => ({
   },
 }));
 
-import { startProxyServer, paidRailBlock, mppRailBlockAfterVerify } from "./server.js";
+import { startProxyServer, paidRailBlock, mppRailBlockAfterVerify, paidTargetingRefusal } from "./server.js";
 import { KillSwitchView } from "@dominusnode/shared";
 import { NodeSelectionError } from "./node-tunnel/selector.js";
 import { TunnelOpenError } from "./node-tunnel/mux.js";
@@ -792,6 +792,36 @@ describe("proxy-gateway server", () => {
 
   // ─── HTTPS CONNECT handling ───────────────────────────────────
 
+  describe("unsupported targeting flags", () => {
+    const withFlags = (proxyOptions: object) => mockAuthenticateRequest.mockResolvedValue({
+      userId: "user-123", user: { id: "user-123", status: "active" }, proxyOptions,
+    });
+
+    it("HTTP: 400 UNSUPPORTED_TARGETING for city-", async () => {
+      withFlags({ country: "US", unsupportedTargeting: ["city"] });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(400);
+      expect(res.headers["x-dominusnode-error"]).toBe("UNSUPPORTED_TARGETING");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("CONNECT: 400 UNSUPPORTED_TARGETING for state-", async () => {
+      withFlags({ unsupportedTargeting: ["state"] });
+      const res = await makeConnect(port, "example.com:443");
+      expect(res.status).toBe(400);
+      expect(mockSelect).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("CONNECT passes asn to node selection", async () => {
+      withFlags({ asn: 7922, country: "US" });
+      const res = await makeConnect(port, "example.com:443");
+      expect(mockSelect).toHaveBeenCalled();
+      expect(mockSelect.mock.calls[0][0]).toMatchObject({ asn: 7922, country: "US" });
+      res.socket.destroy();
+    });
+  });
+
   describe("HTTPS CONNECT requests", () => {
     it("should return 407 when no auth on CONNECT", async () => {
       mockAuthenticateRequest.mockResolvedValue(null);
@@ -1128,5 +1158,21 @@ describe("paidRailBlock (x402 / MPP kill switches)", () => {
   });
   it("fails closed when switch state is unreadable", () => {
     expect(paidRailBlock(relayWith(null), { "x-payment": "abc" })?.code).toBe("KILL_SWITCH_UNAVAILABLE");
+  });
+});
+
+describe("paidTargetingRefusal (credential-less x402/MPP)", () => {
+  const req = (user?: string) =>
+    ({ headers: user === undefined ? {} : { "proxy-authorization": `Basic ${Buffer.from(`${user}:`).toString("base64")}` } }) as unknown as http.IncomingMessage;
+
+  it("passes requests without a username or with honored-elsewhere flags", () => {
+    expect(paidTargetingRefusal(req())).toBeNull();
+    expect(paidTargetingRefusal(req("allowhttp-1"))).toBeNull();
+  });
+
+  it("refuses asn-, city-, state- and malformed asn- before payment", () => {
+    for (const u of ["asn-7922", "country-US-asn-7922", "city-paris", "state-texas", "asn-0"]) {
+      expect(paidTargetingRefusal(req(u))).toMatchObject({ status: 400, code: "UNSUPPORTED_TARGETING" });
+    }
   });
 });
