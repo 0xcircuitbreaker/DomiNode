@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-
+- `dominusnode_fetch` returns HTML as markdown by default (`format`: `markdown`, `text`, `raw`), converted in-house with no new dependency (script, style and comments stripped; linear-time scan).
+- `max_length` (default 20000 chars) and `start_index` page through long bodies, with a `[truncated, next start_index=N]` footer.
+- `user_agent`: presets `chrome-desktop`, `firefox-desktop`, `safari-mobile`, `default`, or a bounded custom string (no CR/LF).
 - `dominusnode-mcp proxy [--port N] [--flags ...]`: loopback forwarder for browser agents (Playwright/Puppeteer). Token-checked, relays over TLS 1.3 to the gateway with the key from DOMINUSNODE_API_KEY.
+
+### Changed
+- The fetch summary reports `Body bytes received` and `Returned chars` separately (the gateway meters billing, including headers and TLS).
 
 ## [2.2.0] - 2026-11-15
 

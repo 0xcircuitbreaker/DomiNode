@@ -52,6 +52,8 @@ export interface ProxyFetchOptions {
   /** Opt in to exit-visible plaintext http:// (username flag allowhttp-1). */
   allowHttp?: boolean;
   timeoutMs?: number;
+  /** User-Agent to send (validated: printable ASCII, no CR/LF, <= 256 chars). Defaults to USER_AGENT. */
+  userAgent?: string;
 }
 
 export type LookupAll = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
@@ -380,6 +382,10 @@ export async function proxyFetch(
     validateHeaders(opts.headers);
   }
 
+  if (opts.userAgent !== undefined && !/^[\x20-\x7E]{1,256}$/.test(opts.userAgent)) {
+    throw new Error("user_agent must be 1-256 printable ASCII characters (no CR/LF)");
+  }
+
   // Plaintext is exit-visible: require explicit opt-in (allowhttp-1).
   if (parsed.protocol === "http:" && !opts.allowHttp) {
     throw new Error(
@@ -451,7 +457,7 @@ function httpProxyFetch(
         path: opts.url,
         headers: {
           ...safeHttpHeaders,
-          "User-Agent": USER_AGENT,
+          "User-Agent": opts.userAgent ?? USER_AGENT,
           "Proxy-Authorization": buildProxyAuth(apiKey, opts),
           Host: parsed.host,
         },
@@ -570,7 +576,7 @@ function httpsProxyFetch(
           const PROTECTED_HEADERS = new Set(["host", "user-agent", "connection", "content-length"]);
           const reqHeaders: Record<string, string> = {
             Host: parsed.host,
-            "User-Agent": USER_AGENT,
+            "User-Agent": opts.userAgent ?? USER_AGENT,
             Accept: "*/*",
             Connection: "close",
           };
