@@ -143,6 +143,8 @@ export async function startForwarder(gw: ForwarderGateway, apiKey: string, opts:
       r.pipe(res);
     });
     up.on("timeout", () => up.destroy(new Error("gateway timed out")));
+    // Client gone (aborted navigation): stop the upstream request instead of finishing it.
+    res.on("close", () => { if (!res.writableFinished) up.destroy(); });
     up.on("error", (err) => {
       if (!res.headersSent) {
         res.writeHead(502, { "Content-Type": "text/plain", Connection: "close" });
@@ -182,6 +184,8 @@ export async function startForwarder(gw: ForwarderGateway, apiKey: string, opts:
       } else client.destroy();
     };
     up.on("error", onErr);
+    // Client gone before the gateway answered: drop the gateway connection now, not at the timeout.
+    client.on("close", () => { if (!established) up.destroy(); });
     up.on("secureConnect", () => {
       up.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\nProxy-Authorization: ${auth}\r\n\r\n`);
     });

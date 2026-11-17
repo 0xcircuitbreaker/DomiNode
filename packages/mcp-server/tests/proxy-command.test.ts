@@ -128,4 +128,30 @@ describe("dominusnode-mcp proxy", () => {
     });
     expect(code).toBe("ECONNREFUSED");
   });
+  it("stays in sync with the Node SDK forwarder", () => {
+    const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const body = (f: string, endMarker?: string): string => {
+      const src = fs.readFileSync(path.join(root, f), "utf8");
+      const start = src.indexOf("const FLAGS_RE");
+      const end = endMarker ? src.indexOf(endMarker) : src.length;
+      return src.slice(start, end).trim();
+    };
+    expect(body("packages/mcp-server/src/proxy-command.ts", "const USAGE")).toBe(body("sdks/node/src/forwarder.ts"));
+  });
+
+  it("drops the gateway connection when the client leaves before CONNECT is answered", async () => {
+    let gwSock: Socket | undefined;
+    gateway = https.createServer({ cert, key });
+    gateway.on("connect", (_req: http.IncomingMessage, sock: Socket) => { socks.push(sock); gwSock = sock; });
+    await new Promise<void>((r) => gateway!.listen(0, "127.0.0.1", () => r()));
+    fwd = await runProxyCommand([], env((gateway.address() as AddressInfo).port), () => undefined);
+    const u = new URL(fwd!.server);
+    const c = net.connect(Number(u.port), u.hostname);
+    c.write(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: ${basic(fwd!.username!)}\r\n\r\n`);
+    for (let i = 0; i < 100 && !gwSock; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(gwSock).toBeDefined();
+    const closed = new Promise<void>((r) => gwSock!.on("close", () => r()));
+    c.destroy();
+    await closed;
+  });
 });
