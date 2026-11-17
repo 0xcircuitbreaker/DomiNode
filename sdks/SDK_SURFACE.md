@@ -413,6 +413,17 @@ PUT `/v1/payout-wallet` `{address, chain, nonce, signature, oldWalletSignature?}
 | `getHealth()` | GET `/api/proxy/health` [none] -> `{status}` only (build it field by field; never default missing counters to 0) |
 | `getConfig()` | GET `/api/proxy/config` [jwt] -> object |
 
+**startForwarder** (Node SDK only, unreleased; optional for the other SDKs and not counted in the
+5 methods above): `startForwarder({host = "127.0.0.1", port = 0, flags = "relay", allowTokenless = false, apiKey?})`
+-> `{url, server, username, password, close()}`. A loopback plain-HTTP proxy (CONNECT and
+absolute-URI requests) for browsers, which cannot send Proxy-Authorization to an HTTPS proxy.
+Non-loopback `host` is INVALID_ARGUMENT; `flags` must match `[A-Za-z0-9][A-Za-z0-9-]{0,199}`;
+gatewayTls disabled is INVALID_ARGUMENT. Clients must send a random per-start token (32 hex) as
+the proxy username (407 otherwise) unless `allowTokenless`. Each client connection opens TLS 1.3
+to `gatewayTls.port` and sends `Proxy-Authorization: Basic base64(flags:apiKey)`; a gateway 407 is
+returned to the client as 502 so the browser never prompts. Error bodies are scrubbed; the key
+is never logged or put in `url`. CLI equivalent: `npx @dominusnode/mcp-server proxy`.
+
 **fetch** options: routing flags above + `method` (GET default | HEAD), `headers`,
 `timeoutMs` (default 30,000, clamp 1..120,000), `maxBytes` (default and max 10 MB), `apiKey?`.
 Order (all checks before any network I/O except step 6):

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `dominusnode-mcp proxy [--port N] [--flags ...]`: loopback forwarder for browser agents (Playwright/Puppeteer). Token-checked, relays over TLS 1.3 to the gateway with the key from DOMINUSNODE_API_KEY.
+
 ## [2.2.0] - 2026-11-15
 
 ### Added

@@ -43,6 +43,44 @@ Routing flags go in the proxy **username**, hyphen-joined; the API key is the **
 
 Prices are live: `await dn.network.pricing()` returns µUSD per GB by IP class.
 
+## Browser agents (Playwright, Puppeteer)
+
+Chromium cannot send proxy credentials to an HTTPS proxy, and the gateway refuses
+keys over plaintext. Run the loopback forwarder: it listens on `127.0.0.1`, checks a
+random per-start token, and relays over TLS 1.3 to `proxy.dominusnode.com:8443`
+with your key added. The key stays in `DOMINUSNODE_API_KEY` and never reaches the browser.
+
+```bash
+export DOMINUSNODE_API_KEY=dn_live_...
+npx @dominusnode/mcp-server proxy --port 3128 --flags country-US-class-residential
+# prints: listening on http://127.0.0.1:3128, proxy username: <token> (password: any)
+```
+
+Or from code with the Node SDK: `const fwd = await dn.proxy.startForwarder({ flags: "country-US" })`.
+
+Playwright:
+
+```js
+const fwd = await dn.proxy.startForwarder({ flags: "country-US-class-residential" });
+const browser = await chromium.launch({
+  proxy: { server: fwd.server, username: fwd.username, password: fwd.password },
+});
+// ... await fwd.close() when done
+```
+
+Puppeteer:
+
+```js
+const fwd = await dn.proxy.startForwarder({ flags: "class-dc" });
+const browser = await puppeteer.launch({ args: [`--proxy-server=${fwd.server}`] });
+const page = await browser.newPage();
+await page.authenticate({ username: fwd.username, password: fwd.password });
+```
+
+`allowTokenless: true` (CLI `--allow-tokenless`) drops the token check; any local
+process could then spend your balance, so use it only in a sandbox. Plain `http://`
+pages still need `allowhttp-1` in the flags.
+
 ## Authentication
 
 ```ts

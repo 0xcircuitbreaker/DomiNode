@@ -8,9 +8,24 @@ import { TokenManager } from "./token-manager.js";
 import { HttpClient } from "./http-client.js";
 import { PACKAGE_VERSION } from "./version.js";
 import { gatewayEcdhCurve } from "./proxy-fetch.js";
+import { runProxyCommand } from "./proxy-command.js";
+import { scrubCredentials } from "./http-client.js";
 import { registerAuthenticatedTools, registerBootstrapTools, countTools } from "./register.js";
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "proxy") {
+    try {
+      const f = await runProxyCommand(process.argv.slice(3));
+      if (!f) return;
+      const stop = (): void => { void f.close().finally(() => process.exit(0)); };
+      process.on("SIGINT", stop);
+      process.on("SIGTERM", stop);
+    } catch (err) {
+      process.stderr.write(`${err instanceof ConfigError ? "Configuration error" : "Error"}: ${scrubCredentials(err instanceof Error ? err.message : String(err))}\n`);
+      process.exit(1);
+    }
+    return;
+  }
   // stdout is the MCP channel: report TLS capability on stderr only.
   if (gatewayEcdhCurve() !== "X25519MLKEM768:X25519") {
     process.stderr.write(`warning: OpenSSL ${process.versions.openssl} lacks X25519MLKEM768; gateway TLS falls back to X25519 (not quantum resistant). Use Node >= 22.20.\n`);
