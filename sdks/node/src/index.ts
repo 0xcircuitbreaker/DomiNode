@@ -41,6 +41,8 @@ export { PayoutWalletResource, PAYOUT_CHAINS } from "./resources/payout-wallet.j
 export type { PayoutChain, PayoutWalletInfo, PayoutWalletChallenge, SetPayoutWalletOptions, SetPayoutWalletResult } from "./resources/payout-wallet.js";
 export { ProxyResource } from "./resources/proxy.js";
 export type { ProxyUrlOptions, ProxyHealth } from "./resources/proxy.js";
+export { isLoopbackHost } from "./forwarder.js";
+export type { Forwarder, StartForwarderOptions } from "./forwarder.js";
 
 // Proxy + safety helpers
 export { buildProxyUsername, IP_CLASSES } from "./proxy-fetch.js";

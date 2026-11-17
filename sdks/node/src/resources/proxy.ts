@@ -6,6 +6,7 @@ import { buildProxyUsername, proxyFetch, type ProxyRoutingOptions, type ProxyFet
 import type { LookupAll } from "../ssrf.js";
 import { validateApiKey } from "./auth.js";
 import { rootCertificates } from "node:tls";
+import { startForwarder, type Forwarder, type StartForwarderOptions } from "../forwarder.js";
 
 /**
  * gatewayTls.ca is ADDED to the system roots (same as the other SDKs), never a
@@ -106,6 +107,19 @@ export class ProxyResource {
       ? { host, port: this.#tls.port, lookup: this.#lookup, tls: { ca: gatewayTrustRoots(this.#tls.ca), servername: this.#tls.servername } }
       : { host, port: this.#httpPort, lookup: this.#lookup };
     return proxyFetch(ep, this.#key(apiKey), url, rest);
+  }
+
+  /**
+   * Start a loopback forwarder for browsers (Playwright/Puppeteer): a plain HTTP proxy on
+   * 127.0.0.1 that relays over TLS 1.3 to the gateway's HTTPS port, injecting the API key and
+   * flags. Clients must send the returned per-start token as proxy username unless
+   * allowTokenless is set. Node SDK only. Needs gatewayTls (the default).
+   */
+  async startForwarder(opts: StartForwarderOptions & { apiKey?: string } = {}): Promise<Forwarder> {
+    if (!this.#tls) throw invalidArg("startForwarder needs TLS to the gateway (gatewayTls must not be false)");
+    const { apiKey, ...rest } = opts;
+    const host = this.#host.replace(/^\[|\]$/g, "");
+    return startForwarder({ host, port: this.#tls.port, ca: gatewayTrustRoots(this.#tls.ca), servername: this.#tls.servername }, this.#key(apiKey), rest);
   }
 
   /** GET /api/proxy/health (no auth). */

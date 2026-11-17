@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { createLogger, query } from "@dominusnode/shared";
+import { metricsAccessAllowed } from "./helpers/metrics-auth.js";
 import { agentAwareRateLimit, resolveAgentSecret } from "./helpers/agent-rate-limit.js";
 import { requestIdMiddleware } from "./helpers/request-id.js";
 
@@ -272,12 +273,10 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   app.use(discoveryRoutes);
   app.use(statusPageRoutes);
 
-  // Prometheus metrics endpoint (localhost only)
+  // Prometheus metrics endpoint: loopback, or Bearer API_METRICS_SECRET when set.
   // H-2 fix: Use socket.remoteAddress (not req.ip) to prevent X-Forwarded-For spoofing
   app.get("/metrics", async (req, res) => {
-    const remoteIp = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
-    const isLoopback = remoteIp === "127.0.0.1" || remoteIp === "::1";
-    if (!isLoopback) {
+    if (!metricsAccessAllowed(req.socket.remoteAddress, req.headers["authorization"], process.env["API_METRICS_SECRET"])) {
       res.status(403).send("Forbidden");
       return;
     }

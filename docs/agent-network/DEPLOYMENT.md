@@ -1123,6 +1123,12 @@ coordinator stays at home). Hostnames are placeholders.
    gateway's CHALLENGE.
 9. Compare the pepper and JWT check values printed on both boxes.
 
+### Monitoring and alerts
+
+Prometheus scrape config, alert rules, a Grafana dashboard and an optional
+`docker-compose.observability.yml` overlay live in `infra/observability/`.
+Setup and per-alert runbooks: [OBSERVABILITY.md](./OBSERVABILITY.md).
+
 ## 8. Launch jobs and settings
 
 | Env var | Default | Meaning |

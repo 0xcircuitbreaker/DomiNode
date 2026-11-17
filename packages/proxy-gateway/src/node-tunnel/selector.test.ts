@@ -64,6 +64,36 @@ describe("NodeSelector", () => {
     expect(() => none.select({ ...base, seedOnly: true })).toThrow(NodeSelectionError);
   });
 
+  it("asn filters on the gateway-derived egress ASN, alone and with country and class", () => {
+    const { sel } = make([
+      node({ nodeId: "a7922", asn: 7922, country: "US", ipClass: "residential" }),
+      node({ nodeId: "a7922dc", asn: 7922, country: "US", ipClass: "dc" }),
+      node({ nodeId: "a3320", asn: 3320, country: "DE", ipClass: "residential" }),
+      node({ nodeId: "unknown", asn: null, country: "US", ipClass: "residential" }),
+    ]);
+    for (let i = 0; i < 5; i++) {
+      expect(["a7922", "a7922dc"]).toContain(sel.select({ ...base, asn: 7922 }).nodeId);
+      expect(sel.select({ ...base, asn: 7922, ipClass: "dc" }).nodeId).toBe("a7922dc");
+      expect(sel.select({ ...base, asn: 3320, country: "DE" }).nodeId).toBe("a3320");
+    }
+    const miss = (o: Partial<SelectOpts>) => { try { sel.select({ ...base, ...o }); } catch (x) { return x; } };
+    for (const e of [miss({ asn: 1 }), miss({ asn: 7922, country: "DE" }), miss({ asn: 3320, ipClass: "dc" })]) {
+      expect(e).toBeInstanceOf(NodeSelectionError);
+      expect((e as NodeSelectionError).code).toBe("NO_NODES_AVAILABLE");
+      expect((e as NodeSelectionError).status).toBe(503);
+    }
+  });
+
+  it("a sticky session keeps its ASN constraint", () => {
+    const { sel } = make([node({ nodeId: "x", asn: 7922 }), node({ nodeId: "y", asn: 3320 })]);
+    const first = sel.select({ ...base, asn: 7922, sticky: "s1" });
+    expect(first.nodeId).toBe("x");
+    expect(sel.select({ ...base, asn: 7922, sticky: "s1" }).nodeId).toBe("x");
+    // Same session id, different ASN: the pinned node no longer qualifies.
+    expect(sel.select({ ...base, asn: 3320, sticky: "s1" }).nodeId).toBe("y");
+    expect(() => sel.select({ ...base, asn: 1, sticky: "s1" })).toThrow(NodeSelectionError);
+  });
+
   it("403 for a sanctioned requested country", () => {
     const { sel } = make([node()]);
     const e = (() => { try { sel.select({ ...base, country: "ir" }); } catch (x) { return x; } })();

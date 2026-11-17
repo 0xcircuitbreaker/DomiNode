@@ -1,0 +1,59 @@
+# DominusNode Prometheus scrape config (example). Replace example.org hosts.
+#
+# Endpoints and their access rules (see docs/agent-network/OBSERVABILITY.md):
+#   - Gateway /metrics is answered on every HTTP listener of the gateway. In
+#     production the plaintext :8080 listener is published on loopback only,
+#     so scrape the TLS proxy port (:8443) with
+#     "Authorization: Bearer <PROXY_STATS_SECRET>". The token never travels in
+#     plaintext.
+#   - API /metrics on :3000: loopback callers, or
+#     "Authorization: Bearer <API_METRICS_SECRET>" when that is set (32+ chars).
+#     With the compose overlay Prometheus reaches it as api:3000 on the
+#     backend network.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    deployment: dominusnode
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Uncomment and point at your Alertmanager.
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager.example.org:9093"]
+
+scrape_configs:
+  # Remote gateway (VPS) over its TLS proxy port. Token read from a file so it
+  # never sits in this config or in process args.
+  - job_name: dominusnode-gateway
+    metrics_path: /metrics
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/proxy_stats_secret
+    static_configs:
+      - targets: ["gateway.example.org:8443"]
+        labels:
+          role: gateway
+
+  # API on the compose backend network (docker-compose.observability.yml).
+  # Running Prometheus on the API host outside Docker? Use 127.0.0.1:3000.
+  - job_name: dominusnode-api
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/api_metrics_secret
+    static_configs:
+      - targets: ["api:3000"]
+        labels:
+          role: api
+
+  # Prometheus itself.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
