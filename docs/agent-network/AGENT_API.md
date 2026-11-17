@@ -82,7 +82,11 @@ data. Authenticated `GET /api/proxy/status` adds endpoints and session counts.
   usual `503 NO_NODES_AVAILABLE`. `city-` and `state-` are refused because the
   gateway has no city or region database: HTTP and CONNECT answer
   `400` with `X-DominusNode-Error: UNSUPPORTED_TARGETING`; SOCKS5 fails the
-  username/password step (RFC 1929 status `0x01`), as for bad credentials.
+  username/password step (RFC 1929 status `0x01`), as for bad credentials. A
+  malformed or out-of-range `asn-` is refused the same way, never ignored.
+  Paid x402/MPP requests without an API key do not apply targeting flags, so
+  `asn-`, `city-` and `state-` in their Basic username are refused with
+  `400 UNSUPPORTED_TARGETING` before any payment is taken.
 - **Rate limits (per user):** reads 120/min; mutations 30/h; signing challenges 30/h
   (plus at most 10 outstanding); reports 60/h. Over the limit: `429 {code:"RATE_LIMITED"}`.
 

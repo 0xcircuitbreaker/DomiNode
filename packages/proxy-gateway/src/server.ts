@@ -141,18 +141,39 @@ export function mppRailBlockAfterVerify(relay: RelayRuntime, req: http.IncomingM
 
 type Refusal = { status: number; code: string; message: string; retryAfterSec?: number };
 
-/** `allowhttp-1` from a Basic username on a paid (credential-less) request. */
-export function paidAllowHttp(req: http.IncomingMessage): boolean {
+/** Flags from a Basic username on a paid (credential-less) request; null when absent. */
+function paidUsernameOptions(req: http.IncomingMessage): ReturnType<typeof parseProxyOptions> | null {
   const h = req.headers["proxy-authorization"];
-  if (typeof h !== "string" || !h.startsWith("Basic ")) return false;
+  if (typeof h !== "string" || !h.startsWith("Basic ")) return null;
   let decoded: string;
   try {
     decoded = Buffer.from(h.slice(6).trim(), "base64").toString("utf-8");
   } catch {
-    return false;
+    return null;
   }
   const i = decoded.indexOf(":");
-  return parseProxyOptions(i === -1 ? decoded : decoded.slice(0, i)).allowHttp === true;
+  return parseProxyOptions(i === -1 ? decoded : decoded.slice(0, i));
+}
+
+/** `allowhttp-1` from a Basic username on a paid (credential-less) request. */
+export function paidAllowHttp(req: http.IncomingMessage): boolean {
+  return paidUsernameOptions(req)?.allowHttp === true;
+}
+
+/**
+ * Paid (credential-less) requests do not apply username targeting, so asn-,
+ * city- and state- are refused before payment rather than silently ignored
+ * (an exit outside the requested ASN must never be charged for).
+ */
+export function paidTargetingRefusal(req: http.IncomingMessage): Refusal | null {
+  const o = paidUsernameOptions(req);
+  if (!o) return null;
+  const unsupported = unsupportedTargetingMessage(o);
+  if (unsupported) return { status: 400, code: UNSUPPORTED_TARGETING_CODE, message: unsupported };
+  if (o.asn !== undefined) {
+    return { status: 400, code: UNSUPPORTED_TARGETING_CODE, message: "asn-<n> needs an API key; paid x402/MPP requests cannot target an ASN" };
+  }
+  return null;
 }
 
 /**
@@ -173,6 +194,8 @@ export function paidPrecheck(
   const ks = relay.killSwitches?.() ?? killSwitches();
   const relayBlock = ks.checkRelay(selectClassFor(getPoolTypeFromRequest(req)));
   if (relayBlock) return relayBlock;
+  const targeting = paidTargetingRefusal(req);
+  if (targeting) return targeting;
   if (!target || !isValidHostname(target.host) || !isValidPort(target.port)) {
     return { status: 400, code: "INVALID_TARGET", message: "Bad request: absolute http:// URL required" };
   }
@@ -200,6 +223,8 @@ export function paidConnectPrecheck(relay: RelayRuntime, req: http.IncomingMessa
   const ks = relay.killSwitches?.() ?? killSwitches();
   const relayBlock = ks.checkRelay(selectClassFor(getPoolTypeFromRequest(req)));
   if (relayBlock) return relayBlock;
+  const targeting = paidTargetingRefusal(req);
+  if (targeting) return targeting;
   const parsed = parseConnectTarget(req.url ?? "");
   if (!parsed || !isValidHostname(parsed.host) || !isValidPort(parsed.port) || /[\x00-\x1f\x7f]/.test(parsed.host)) {
     return { status: 400, code: "INVALID_TARGET", message: "Bad request: host:port required" };

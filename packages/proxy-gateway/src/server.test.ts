@@ -136,7 +136,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => ({
   },
 }));
 
-import { startProxyServer, paidRailBlock, mppRailBlockAfterVerify } from "./server.js";
+import { startProxyServer, paidRailBlock, mppRailBlockAfterVerify, paidTargetingRefusal } from "./server.js";
 import { KillSwitchView } from "@dominusnode/shared";
 import { NodeSelectionError } from "./node-tunnel/selector.js";
 import { TunnelOpenError } from "./node-tunnel/mux.js";
@@ -1158,5 +1158,21 @@ describe("paidRailBlock (x402 / MPP kill switches)", () => {
   });
   it("fails closed when switch state is unreadable", () => {
     expect(paidRailBlock(relayWith(null), { "x-payment": "abc" })?.code).toBe("KILL_SWITCH_UNAVAILABLE");
+  });
+});
+
+describe("paidTargetingRefusal (credential-less x402/MPP)", () => {
+  const req = (user?: string) =>
+    ({ headers: user === undefined ? {} : { "proxy-authorization": `Basic ${Buffer.from(`${user}:`).toString("base64")}` } }) as unknown as http.IncomingMessage;
+
+  it("passes requests without a username or with honored-elsewhere flags", () => {
+    expect(paidTargetingRefusal(req())).toBeNull();
+    expect(paidTargetingRefusal(req("allowhttp-1"))).toBeNull();
+  });
+
+  it("refuses asn-, city-, state- and malformed asn- before payment", () => {
+    for (const u of ["asn-7922", "country-US-asn-7922", "city-paris", "state-texas", "asn-0"]) {
+      expect(paidTargetingRefusal(req(u))).toMatchObject({ status: 400, code: "UNSUPPORTED_TARGETING" });
+    }
   });
 });

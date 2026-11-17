@@ -280,6 +280,15 @@ describe("parseProxyOptions (relay flags)", () => {
     expect(parseProxyOptions("session-cityabc").unsupportedTargeting).toBeUndefined();
     expect(unsupportedTargetingMessage(parseProxyOptions("state-texas"))).toContain("state-");
     expect(unsupportedTargetingMessage(parseProxyOptions("country-US-asn-7922"))).toBeNull();
+  });
+
+  it("refuses a malformed or out-of-range asn- instead of dropping the constraint", () => {
+    for (const u of ["asn-0", "asn-4294967296", "asn-abc", "asn-", "country-US-asn-99999999999", "asn-AS7922"]) {
+      expect(parseProxyOptions(u).unsupportedTargeting).toContain("asn");
+      expect(unsupportedTargetingMessage(parseProxyOptions(u))).toContain("Invalid asn-");
+    }
+    expect(parseProxyOptions("city-x-asn-0").unsupportedTargeting).toEqual(["city", "asn"]);
+    expect(parseProxyOptions("country-US-asn-7922").unsupportedTargeting).toBeUndefined();
     expect(UNSUPPORTED_TARGETING_CODE).toBe("UNSUPPORTED_TARGETING");
   });
 

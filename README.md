@@ -96,7 +96,7 @@ with x402 or MPP.
 | `503 NO_NODES_AVAILABLE` | No eligible exit node for your flags (country, class, ASN, sticky session) | Loosen `country-`/`class-`/`asn-` flags or retry later; `GET /v1/network/stats` shows what is online |
 | `503 QUOTE_CLASS_MISMATCH` | An x402/MPP payment was quoted for a class no node could serve | Request a new quote, or drop the class flag |
 | `503 PAYOUTS_DISABLED` | USDC withdrawals are disabled in alpha | Convert credits into bandwidth (`POST /v1/credits/convert`) |
-| `400 UNSUPPORTED_TARGETING` | You sent `city-` or `state-` | Drop them; use `country-XX` or `asn-<n>` |
+| `400 UNSUPPORTED_TARGETING` | You sent `city-`/`state-`, a malformed `asn-`, or `asn-` on a paid request without an API key | Drop them; use `country-XX` or a valid `asn-<n>` with an API key |
 | `400 PLAINTEXT_DISABLED` (plain `http://` target) | The exit node could read plaintext HTTP | Use `https://` targets, or add `allowhttp-1` if you accept that |
 | Warning about credentials over plaintext | You used port 8080/1080 | Switch to the TLS proxy on 8443 |
 

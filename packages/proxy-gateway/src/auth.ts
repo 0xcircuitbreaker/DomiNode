@@ -10,8 +10,8 @@ export interface ProxyOptions {
   city?: string;      // lowercase city name; parsed only to refuse it (no geo DB)
   /** asn-<n>: exit only through a node whose gateway-derived egress ASN is n. */
   asn?: number;
-  /** Targeting flags the gateway cannot honor (city-, state-); the request is refused. */
-  unsupportedTargeting?: Array<"city" | "state">;
+  /** Targeting flags the gateway cannot honor (city-, state-, or a malformed asn-); the request is refused. */
+  unsupportedTargeting?: Array<"city" | "state" | "asn">;
   sessionId?: string; // sticky session ID (alphanumeric)
   /** @deprecated legacy dc-/residential-/auto- prefix; mapped to ipClass. */
   proxyType?: "dc" | "residential" | "auto";
@@ -76,10 +76,9 @@ export function parseProxyOptions(username: string): ProxyOptions {
     options.city = cityMatch[1].toLowerCase();
   }
 
-  const unsupported: Array<"city" | "state"> = [];
+  const unsupported: Array<"city" | "state" | "asn"> = [];
   if (/(?:^|-)city-/.test(username)) unsupported.push("city");
   if (/(?:^|-)state-/.test(username)) unsupported.push("state");
-  if (unsupported.length > 0) options.unsupportedTargeting = unsupported;
 
   // Match asn-NNNNN pattern
   const asnMatch = username.match(/(?:^|-)asn-(\d{1,10})(?:-|$)/);
@@ -89,6 +88,9 @@ export function parseProxyOptions(username: string): ProxyOptions {
       options.asn = asnNum;
     }
   }
+  // A malformed or out-of-range asn- must fail closed, never drop the constraint.
+  if (/(?:^|-)asn-/.test(username) && options.asn === undefined) unsupported.push("asn");
+  if (unsupported.length > 0) options.unsupportedTargeting = unsupported;
 
   // Match session-XXXX pattern (cap at 255 chars to prevent log/memory abuse)
   const sessionMatch = username.match(/(?:^|-)session-([a-zA-Z0-9]+)(?:-|$)/);
@@ -107,11 +109,15 @@ export function parseProxyOptions(username: string): ProxyOptions {
 
 export const UNSUPPORTED_TARGETING_CODE = "UNSUPPORTED_TARGETING";
 
-/** Client-facing refusal text for city-/state- flags, or null when none were sent. */
+/** Client-facing refusal text for city-/state-/malformed asn- flags, or null when none were sent. */
 export function unsupportedTargetingMessage(o: ProxyOptions): string | null {
   const u = o.unsupportedTargeting;
   if (!u || u.length === 0) return null;
-  return `Unsupported targeting flag(s): ${u.map((f) => `${f}-`).join(", ")}. Use country-XX or asn-<n>.`;
+  const parts = u.filter((f) => f !== "asn").map((f) => `${f}-`);
+  const msgs: string[] = [];
+  if (parts.length > 0) msgs.push(`Unsupported targeting flag(s): ${parts.join(", ")}. Use country-XX or asn-<n>.`);
+  if (u.includes("asn")) msgs.push("Invalid asn- flag: use asn-<n> with n from 1 to 4294967295.");
+  return msgs.join(" ");
 }
 
 export async function authenticateRequest(
