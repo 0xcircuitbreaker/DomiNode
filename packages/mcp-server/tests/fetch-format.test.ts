@@ -180,7 +180,7 @@ describe("dominusnode_fetch formats", () => {
     expect(text).toContain("# Hello");
     expect(text).not.toContain("<script>");
     const bytes = Buffer.byteLength(PAGE, "utf8");
-    expect(text).toContain(`Billed bytes: ${bytes}`);
+    expect(text).toContain(`Body bytes received: ${bytes}`);
     const md = htmlToMarkdown(PAGE);
     expect(text).toContain(`Returned chars: ${md.length} of ${md.length} (markdown, start_index=0)`);
   });
@@ -205,7 +205,7 @@ describe("dominusnode_fetch formats", () => {
   it("paginates with a next start_index footer, billing the full transfer each time", async () => {
     const { call } = setup();
     const p1 = (await call({ url: `${BASE}/long`, max_length: 20 })).content[0].text;
-    expect(p1).toContain("Billed bytes: 50");
+    expect(p1).toContain("Body bytes received: 50");
     expect(p1).toContain("Returned chars: 20 of 50");
     expect(p1).toContain("[truncated, next start_index=20]");
     const p3 = (await call({ url: `${BASE}/long`, max_length: 20, start_index: 40 })).content[0].text;
@@ -264,5 +264,19 @@ describe("dominusnode_fetch formats", () => {
     const r = await call({ url: "http://127.0.0.1/", format: "text" });
     expect(r.isError).toBe(true);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe("review fixes", () => {
+  it("rejects a custom user_agent that carries a credential", () => {
+    expect(() => resolveUserAgent(`bot/1.0 ${API_KEY}`)).toThrow(/credentials/);
+    expect(() => resolveUserAgent("x dn_node_" + "c".repeat(32))).toThrow(/credentials/);
+    expect(() => resolveUserAgent("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl")).toThrow(/credentials/);
+  });
+
+  it("drops links whose href starts with a control character", () => {
+    const md = htmlToMarkdown('<p><a href="&#1;javascript:alert(1)">x</a> <a href="\u007fjavascript:y">z</a></p>');
+    expect(md).not.toMatch(/javascript|\]\(/);
+    expect(md).toContain("x");
   });
 });

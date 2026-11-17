@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `user_agent`: presets `chrome-desktop`, `firefox-desktop`, `safari-mobile`, `default`, or a bounded custom string (no CR/LF).
 
 ### Changed
-- The fetch summary reports `Billed bytes` (bytes transferred) and `Returned chars` separately.
+- The fetch summary reports `Body bytes received` and `Returned chars` separately (the gateway meters billing, including headers and TLS).
 
 ## [2.2.0] - 2026-11-15
 

@@ -33,6 +33,10 @@ export function resolveUserAgent(ua: string | undefined): string | undefined {
       `user_agent must be a preset (${Object.keys(USER_AGENT_PRESETS).join(", ")}, default) or 1-${MAX_USER_AGENT_LENGTH} printable ASCII characters without CR/LF`,
     );
   }
+  // The UA reaches the exit node (plaintext) and the target: never let it carry a credential.
+  if (scrubCredentials(ua) !== ua) {
+    throw new Error("user_agent must not contain credentials");
+  }
   return ua;
 }
 
@@ -73,7 +77,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
       "These request headers are dropped and never sent: Authorization, Proxy-Authorization, User-Agent (set it with user_agent instead), Host, Connection, Content-Length, Transfer-Encoding, TE, Trailer, Upgrade, " +
       "Keep-Alive, Proxy-Connection. Do not put credentials in headers. " +
       "HTML responses are returned as markdown by default (format=text or raw to change); output is paged with max_length " +
-      "(default 20000 chars) and start_index. Billing counts the bytes actually transferred, not the returned characters.",
+      "(default 20000 chars) and start_index. Billing is metered by the gateway on all bytes through the exit (headers and TLS included), not on the returned characters.",
     {
       url: z.string().max(8192).describe("URL to fetch (https: preferred; http: only with allow_http=true)"),
       method: z.enum(["GET", "HEAD"]).default("GET").describe("HTTP method (read-only for safety)"),
@@ -119,7 +123,7 @@ export function registerFetchTools(server: McpServer, config: McpConfig): void {
         const summary = [
           `Status: ${result.status} ${result.statusText}`,
           ...(exitVisible ? ["EXIT-VISIBLE PLAINTEXT (node operator could read/alter this response)"] : []),
-          `Billed bytes: ${result.byteCount}${result.bodyTruncated ? " (10MB cap reached, body truncated)" : ""}`,
+          `Body bytes received: ${result.byteCount}${result.bodyTruncated ? " (10MB cap reached, body truncated)" : ""}`,
           `Returned chars: ${shaped.returnedChars} of ${shaped.totalChars} (${shaped.converted ? format : "raw"}, start_index=${startIndex})`,
           ...(result.droppedHeaders?.length ? [`Note: request headers not sent (blocked): ${result.droppedHeaders.join(", ")}`] : []),
         ];

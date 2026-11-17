@@ -83,7 +83,9 @@ function parseAttrs(s: string): Record<string, string> {
 function safeHref(href: string | undefined): string | null {
   if (!href) return null;
   const h = href.trim();
-  if (!h || /[\s<>()]/.test(h) || h.length > 2048) return null;
+  // Controls (C0, DEL) are rejected too: browsers strip them, so "\x01javascript:" would
+  // otherwise pass as a relative link.
+  if (!h || /[\s<>()\x00-\x1f\x7f]/.test(h) || h.length > 2048) return null;
   const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(h);
   if (scheme && !["http", "https", "mailto"].includes(scheme[1].toLowerCase())) return null;
   return h;
