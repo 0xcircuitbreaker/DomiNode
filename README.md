@@ -47,10 +47,11 @@ The API key goes in the password field. The username holds hyphen-joined flags:
 |---|---|
 | `country-XX` | Exit country (OFAC countries CU, IR, KP, RU and SY are refused) |
 | `class-residential` / `class-dc` / `class-mobile` / `class-masked` | IP class. `masked` (VPN/WARP/Tor egress) is the cheapest and opt-in: unflagged requests never use it |
-| `session-<id>` | Sticky session |
+| `asn-<n>` | Exit through a node whose egress ASN (looked up by the gateway) is `n`, e.g. `asn-7922`; combines with `country-` and `class-` |
+| `session-<id>` | Sticky session (keeps any `asn-` constraint) |
 | `allowhttp-1` | Allow plaintext HTTP (the exit can read it) |
 
-With no flags, use `relay`.
+With no flags, use `relay`. `city-` and `state-` are not supported (no geo database): HTTP/CONNECT answer `400 UNSUPPORTED_TARGETING` and SOCKS5 fails authentication.
 
 Use the TLS proxy on port 8443 so your API key never crosses the network in clear:
 
@@ -92,9 +93,10 @@ with x402 or MPP.
 |---|---|---|
 | `407 Proxy Authentication Required` | No or invalid credentials | Put the `dn_live_` key in the proxy **password** field; username is flags or `relay` |
 | `402 Payment Required` (`INSUFFICIENT_BALANCE`) | Authenticated, but the wallet cannot cover the reservation | Top up (crypto) or claim starter credits; or pay per request with x402/MPP from the 402 body |
-| `503 NO_NODES_AVAILABLE` | No eligible exit node for your flags (country, class, sticky session) | Loosen `country-`/`class-` flags or retry later; `GET /v1/network/stats` shows what is online |
+| `503 NO_NODES_AVAILABLE` | No eligible exit node for your flags (country, class, ASN, sticky session) | Loosen `country-`/`class-`/`asn-` flags or retry later; `GET /v1/network/stats` shows what is online |
 | `503 QUOTE_CLASS_MISMATCH` | An x402/MPP payment was quoted for a class no node could serve | Request a new quote, or drop the class flag |
 | `503 PAYOUTS_DISABLED` | USDC withdrawals are disabled in alpha | Convert credits into bandwidth (`POST /v1/credits/convert`) |
+| `400 UNSUPPORTED_TARGETING` | You sent `city-` or `state-` | Drop them; use `country-XX` or `asn-<n>` |
 | `400 PLAINTEXT_DISABLED` (plain `http://` target) | The exit node could read plaintext HTTP | Use `https://` targets, or add `allowhttp-1` if you accept that |
 | Warning about credentials over plaintext | You used port 8080/1080 | Switch to the TLS proxy on 8443 |
 

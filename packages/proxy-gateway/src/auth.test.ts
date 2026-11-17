@@ -25,7 +25,7 @@ vi.mock("@dominusnode/shared", () => ({
   }),
 }));
 
-import { authenticateRequest, parseProxyOptions } from "./auth.js";
+import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, UNSUPPORTED_TARGETING_CODE } from "./auth.js";
 
 function makeRequest(proxyAuth?: string): http.IncomingMessage {
   const req = new http.IncomingMessage(null as any);
@@ -262,6 +262,25 @@ describe("parseProxyOptions (relay flags)", () => {
 
   it("class- overrides the legacy prefix", () => {
     expect(parseProxyOptions("dc-class-residential").ipClass).toBe("residential");
+  });
+
+  it("parses asn-<n> within range alongside country and class", () => {
+    expect(parseProxyOptions("country-US-class-residential-asn-7922")).toMatchObject({ country: "US", ipClass: "residential", asn: 7922 });
+    expect(parseProxyOptions("asn-4294967295").asn).toBe(4_294_967_295);
+    expect(parseProxyOptions("asn-0").asn).toBeUndefined();
+    expect(parseProxyOptions("asn-4294967296").asn).toBeUndefined();
+    expect(parseProxyOptions("asn-abc").asn).toBeUndefined();
+    expect(parseProxyOptions("relay").unsupportedTargeting).toBeUndefined();
+  });
+
+  it("flags city- and state- as unsupported targeting", () => {
+    expect(parseProxyOptions("country-US-city-losangeles").unsupportedTargeting).toEqual(["city"]);
+    expect(parseProxyOptions("state-california-city-x").unsupportedTargeting).toEqual(["city", "state"]);
+    expect(parseProxyOptions("city-").unsupportedTargeting).toEqual(["city"]);
+    expect(parseProxyOptions("session-cityabc").unsupportedTargeting).toBeUndefined();
+    expect(unsupportedTargetingMessage(parseProxyOptions("state-texas"))).toContain("state-");
+    expect(unsupportedTargetingMessage(parseProxyOptions("country-US-asn-7922"))).toBeNull();
+    expect(UNSUPPORTED_TARGETING_CODE).toBe("UNSUPPORTED_TARGETING");
   });
 
   it("ignores unknown classes and allowhttp values other than 1", () => {

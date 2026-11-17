@@ -123,7 +123,7 @@ After EVERY mistake or correction:
 
 ## Proxy Usage
 
-The API key goes in the password field. The username carries hyphen-joined flags (`country-XX`, `class-residential|dc|mobile|masked`, `session-<id>`, `allowhttp-1`). `class-masked` (VPN/WARP/Tor egress, cheapest) is opt-in: unflagged requests never use masked nodes. With no flags, use `relay`.
+The API key goes in the password field. The username carries hyphen-joined flags (`country-XX`, `class-residential|dc|mobile|masked`, `asn-<n>`, `session-<id>`, `allowhttp-1`). `asn-<n>` matches the gateway-looked-up egress ASN of the node. `city-`/`state-` are refused (HTTP/CONNECT `400 UNSUPPORTED_TARGETING`, SOCKS5 auth failure). `class-masked` (VPN/WARP/Tor egress, cheapest) is opt-in: unflagged requests never use masked nodes. With no flags, use `relay`.
 
 ```bash
 # Any eligible node (HTTPS stays end-to-end TLS through the exit node):
@@ -134,6 +134,9 @@ curl -x http://country-US-class-residential:dn_live_KEY@localhost:8080 https://h
 
 # Sticky session on a datacenter exit, over SOCKS5:
 curl -x socks5h://country-DE-class-dc-session-abc123:dn_live_KEY@localhost:1080 https://httpbin.org/ip
+
+# Exit through a specific ASN (gateway-derived egress ASN), US only:
+curl -x http://country-US-asn-7922:dn_live_KEY@localhost:8080 https://httpbin.org/ip
 
 # Cheapest: anonymizer (VPN/WARP) exits, only when asked for:
 curl -x http://class-masked:dn_live_KEY@localhost:8080 https://httpbin.org/ip

@@ -6,7 +6,7 @@ import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestI
 import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
-import { authenticateRequest, parseProxyOptions, type AuthResult } from "./auth.js";
+import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, UNSUPPORTED_TARGETING_CODE, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
@@ -350,6 +350,7 @@ function relaySelectOpts(
   return {
     country: o?.country,
     ipClass: o?.ipClass ?? ipClass,
+    asn: o?.asn,
     requesterUserId: auth?.userId ?? requesterKey,
     requesterWallet: auth?.user.wallet_address ?? undefined,
     requesterTeamId: auth?.teamId ?? undefined,
@@ -489,6 +490,11 @@ async function handleRequest(
   const target = parseForwardTarget(clientReq.url ?? "");
   if (auth && (!!clientReq.headers["x-payment"] || hasMppCredential(clientReq.headers))) {
     sendError(clientRes, 400, "PAYMENT_WITH_API_KEY", PAYMENT_WITH_API_KEY_MESSAGE);
+    return;
+  }
+  const httpUnsupported = auth ? unsupportedTargetingMessage(auth.proxyOptions) : null;
+  if (httpUnsupported) {
+    sendError(clientRes, 400, UNSUPPORTED_TARGETING_CODE, httpUnsupported);
     return;
   }
   if (!auth) {
@@ -943,6 +949,12 @@ async function handleConnect(
   if (auth && (!!req.headers["x-payment"] || hasMppCredential(req.headers))) {
     const body = JSON.stringify({ error: "PAYMENT_WITH_API_KEY", message: PAYMENT_WITH_API_KEY_MESSAGE });
     safeSocketWrite(clientSocket, `HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: PAYMENT_WITH_API_KEY\r\n\r\n${body}`);
+    return;
+  }
+  const connectUnsupported = auth ? unsupportedTargetingMessage(auth.proxyOptions) : null;
+  if (connectUnsupported) {
+    const body = JSON.stringify({ error: UNSUPPORTED_TARGETING_CODE, message: connectUnsupported });
+    safeSocketWrite(clientSocket, `HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nX-DominusNode-Error: ${UNSUPPORTED_TARGETING_CODE}\r\nConnection: close\r\n\r\n${body}`);
     return;
   }
   if (!auth) {

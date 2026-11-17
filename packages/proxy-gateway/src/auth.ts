@@ -6,9 +6,12 @@ const log = createLogger("proxy:auth");
 
 export interface ProxyOptions {
   country?: string;   // 2-letter country code (e.g., "US", "DE")
-  state?: string;     // lowercase state name (e.g., "california")
-  city?: string;      // lowercase city name (e.g., "losangeles")
-  asn?: number;       // ASN number (placeholder for future providers)
+  state?: string;     // lowercase state name; parsed only to refuse it (no geo DB)
+  city?: string;      // lowercase city name; parsed only to refuse it (no geo DB)
+  /** asn-<n>: exit only through a node whose gateway-derived egress ASN is n. */
+  asn?: number;
+  /** Targeting flags the gateway cannot honor (city-, state-); the request is refused. */
+  unsupportedTargeting?: Array<"city" | "state">;
   sessionId?: string; // sticky session ID (alphanumeric)
   /** @deprecated legacy dc-/residential-/auto- prefix; mapped to ipClass. */
   proxyType?: "dc" | "residential" | "auto";
@@ -73,6 +76,11 @@ export function parseProxyOptions(username: string): ProxyOptions {
     options.city = cityMatch[1].toLowerCase();
   }
 
+  const unsupported: Array<"city" | "state"> = [];
+  if (/(?:^|-)city-/.test(username)) unsupported.push("city");
+  if (/(?:^|-)state-/.test(username)) unsupported.push("state");
+  if (unsupported.length > 0) options.unsupportedTargeting = unsupported;
+
   // Match asn-NNNNN pattern
   const asnMatch = username.match(/(?:^|-)asn-(\d{1,10})(?:-|$)/);
   if (asnMatch) {
@@ -95,6 +103,15 @@ export function parseProxyOptions(username: string): ProxyOptions {
   }
 
   return options;
+}
+
+export const UNSUPPORTED_TARGETING_CODE = "UNSUPPORTED_TARGETING";
+
+/** Client-facing refusal text for city-/state- flags, or null when none were sent. */
+export function unsupportedTargetingMessage(o: ProxyOptions): string | null {
+  const u = o.unsupportedTargeting;
+  if (!u || u.length === 0) return null;
+  return `Unsupported targeting flag(s): ${u.map((f) => `${f}-`).join(", ")}. Use country-XX or asn-<n>.`;
 }
 
 export async function authenticateRequest(

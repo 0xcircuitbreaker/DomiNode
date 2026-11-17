@@ -67,7 +67,7 @@ vi.mock("./x402-handler.js", () => ({
 }));
 
 vi.mock("./auth.js", async (orig) => ({
-  parseProxyOptions: ((await orig()) as { parseProxyOptions: unknown }).parseProxyOptions,
+  ...((await orig()) as object),
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
 }));
 
@@ -791,6 +791,36 @@ describe("proxy-gateway server", () => {
   });
 
   // ─── HTTPS CONNECT handling ───────────────────────────────────
+
+  describe("unsupported targeting flags", () => {
+    const withFlags = (proxyOptions: object) => mockAuthenticateRequest.mockResolvedValue({
+      userId: "user-123", user: { id: "user-123", status: "active" }, proxyOptions,
+    });
+
+    it("HTTP: 400 UNSUPPORTED_TARGETING for city-", async () => {
+      withFlags({ country: "US", unsupportedTargeting: ["city"] });
+      const res = await makeRequest(port, { path: "http://httpbin.org/ip", method: "GET" });
+      expect(res.status).toBe(400);
+      expect(res.headers["x-dominusnode-error"]).toBe("UNSUPPORTED_TARGETING");
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("CONNECT: 400 UNSUPPORTED_TARGETING for state-", async () => {
+      withFlags({ unsupportedTargeting: ["state"] });
+      const res = await makeConnect(port, "example.com:443");
+      expect(res.status).toBe(400);
+      expect(mockSelect).not.toHaveBeenCalled();
+      res.socket.destroy();
+    });
+
+    it("CONNECT passes asn to node selection", async () => {
+      withFlags({ asn: 7922, country: "US" });
+      const res = await makeConnect(port, "example.com:443");
+      expect(mockSelect).toHaveBeenCalled();
+      expect(mockSelect.mock.calls[0][0]).toMatchObject({ asn: 7922, country: "US" });
+      res.socket.destroy();
+    });
+  });
 
   describe("HTTPS CONNECT requests", () => {
     it("should return 407 when no auth on CONNECT", async () => {
