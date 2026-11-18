@@ -133,6 +133,10 @@ mkdir -p "$SH_DIR"
 ROLE_DEFAULT="${ROLE:-$(env_get ROLE)}"
 ROLE_SEL="$(ask "Role (all|coordinator|gateway)" "${ROLE_DEFAULT:-all}")"
 case "$ROLE_SEL" in all|coordinator|gateway) ;; *) die "ROLE must be all, coordinator or gateway" ;; esac
+# Only ROLE=coordinator publishes Postgres for a gateway VPS.
+if [ "$ROLE_SEL" != coordinator ] && [ -n "${DB_WG_BIND:-}" ]; then
+  echo "install: WARNING: DB_WG_BIND=$DB_WG_BIND is ignored with ROLE=$ROLE_SEL; only ROLE=coordinator publishes Postgres over WireGuard (run this on the coordinator with ROLE=coordinator)." >&2
+fi
 
 # ─── Hostnames ──────────────────────────────────────────────────────
 HOSTS_DEFAULT="${DOMINUSNODE_HOSTNAMES:-$(env_get PUBLIC_HOSTNAMES | tr ',' ' ')}"

@@ -960,6 +960,10 @@ After adding them, confirm the api still reaches Postgres:
 
 Persist these with your distribution's tool (`iptables-persistent`, nftables).
 
+**`DB_WG_BIND` is read only with `ROLE=coordinator`.** With `ROLE=all` or
+`ROLE=gateway` the installer ignores it and prints a warning; set it when you
+run the installer on the coordinator, not on the gateway VPS.
+
 **Database link.** The coordinator publishes Postgres only on `DB_WG_BIND`
 (its WireGuard address) through `docker-compose.selfhost.wg-db.yml`, which the
 installer adds automatically. The gateway never gets the Postgres superuser:
