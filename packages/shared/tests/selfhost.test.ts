@@ -1108,3 +1108,36 @@ describe("DOCKER-USER Postgres rules (br_netfilter safe)", () => {
     }
   });
 });
+
+describe("self-host beta fixes", () => {
+  it("frontend healthcheck targets IPv4 and nginx listens on both families", () => {
+    const df = fs.readFileSync(path.join(ROOT, "infra/docker/frontend.Dockerfile"), "utf8");
+    const hc = df.slice(df.indexOf("HEALTHCHECK"));
+    expect(hc).not.toMatch(/localhost/);
+    expect(hc).toMatch(/127\.0\.0\.1:8080/);
+    for (const conf of ["infra/nginx/selfhost.conf", "infra/nginx/default.conf"]) {
+      const c = fs.readFileSync(path.join(ROOT, conf), "utf8");
+      expect(c).toMatch(/^\s*listen 8080;/m);
+      expect(c).toMatch(/^\s*listen \[::\]:8080;/m);
+    }
+  });
+
+  for (const role of ["all", "gateway"]) {
+    it.runIf(has("openssl", ["version"]))(`warns that DB_WG_BIND is ignored with ROLE=${role}`, () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-"));
+      try {
+        fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+        fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+        fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+        fs.writeFileSync(path.join(tmp, "scripts/update-asn-db.sh"), "#!/usr/bin/env bash\nexit 1\n");
+        const r = spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+          env: { ...process.env, DOMINUSNODE_HOSTNAMES: "node.example.org", TLS_MODE: "auto", SKIP_ASN_DB: "1", ROLE: role, DB_WG_BIND: "10.66.0.1" },
+          encoding: "utf8",
+        });
+        expect(r.stderr).toMatch(new RegExp(`DB_WG_BIND=10\\.66\\.0\\.1 is ignored with ROLE=${role}`));
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+  }
+});
