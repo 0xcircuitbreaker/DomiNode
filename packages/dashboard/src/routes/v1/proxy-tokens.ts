@@ -4,6 +4,7 @@ import { createLogger, proxyTokenRepo } from "@dominusnode/shared";
 import type { ProxyToken } from "@dominusnode/shared";
 import { requireAgentPrincipal, type AgentRequest } from "../../middleware/agent.js";
 import { createKeyedLimiter } from "./limiter.js";
+import { terminateProxyTokenSessions } from "../../lib/gateway-signal.js";
 
 /**
  * Scoped, revocable proxy tokens (AGENT_API.md "Proxy tokens"). A token is a
@@ -114,7 +115,9 @@ router.get("/proxy-tokens", async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /v1/proxy-tokens/:id (revoke; the gateway refuses it within seconds)
+// DELETE /v1/proxy-tokens/:id (revoke; new requests are refused within
+// seconds and open tunnels/sessions using the token are ended: signalled to the
+// local gateway now, every other gateway at its next proxy-token sweep)
 router.delete("/proxy-tokens/:id", async (req: Request, res: Response) => {
   if (!limit(revokeLimiter, req, res)) return;
   const id = req.params["id"];
@@ -128,7 +131,11 @@ router.delete("/proxy-tokens/:id", async (req: Request, res: Response) => {
       res.status(404).json({ error: "Proxy token not found or already revoked" });
       return;
     }
-    res.json({ id, revoked: true });
+    const terminated = await terminateProxyTokenSessions(id.toLowerCase());
+    if (terminated === null) log.warn("could not signal gateway to end proxy token sessions", { tokenId: id });
+    res.json(terminated === null
+      ? { id, revoked: true, warning: "gateway not reachable: open sessions end at the next gateway sweep (about 30 s)" }
+      : { id, revoked: true, terminatedSessions: terminated });
   } catch (err) {
     log.error("proxy token revoke failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
     res.status(500).json({ error: "Failed to revoke proxy token" });

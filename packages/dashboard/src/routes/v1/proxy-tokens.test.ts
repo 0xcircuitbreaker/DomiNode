@@ -5,7 +5,9 @@ const USER = "11111111-1111-4111-8111-111111111111";
 const TID = "22222222-2222-4222-8222-222222222222";
 let principal = { userId: USER, email: "w@wallet.example.org", walletAddress: null, via: "api_key", verified: true };
 
-const m = vi.hoisted(() => ({ create: vi.fn(), list: vi.fn(), revoke: vi.fn() }));
+const m = vi.hoisted(() => ({ create: vi.fn(), list: vi.fn(), revoke: vi.fn(), signal: vi.fn() }));
+
+vi.mock("../../lib/gateway-signal.js", () => ({ terminateProxyTokenSessions: m.signal }));
 
 vi.mock("../../middleware/agent.js", () => ({
   requireAgentPrincipal: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
@@ -96,11 +98,27 @@ describe("GET /v1/proxy-tokens", () => {
 });
 
 describe("DELETE /v1/proxy-tokens/:id", () => {
-  it("revokes", async () => {
+  it("revokes and signals the gateway to end the token's open sessions", async () => {
     m.revoke.mockResolvedValue(true);
+    m.signal.mockResolvedValue(2);
     const r = await call(app(), "DELETE", `/v1/proxy-tokens/${TID}`);
     expect(r.status).toBe(200);
     expect(m.revoke).toHaveBeenCalledWith(USER, TID);
+    expect(m.signal).toHaveBeenCalledWith(TID);
+    expect(r.body).toMatchObject({ revoked: true, terminatedSessions: 2 });
+  });
+  it("still revokes when the gateway cannot be reached, with a sweep warning", async () => {
+    m.revoke.mockResolvedValue(true);
+    m.signal.mockResolvedValue(null);
+    const r = await call(app(), "DELETE", `/v1/proxy-tokens/${TID}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ revoked: true });
+    expect(String((r.body as { warning?: string }).warning)).toMatch(/sweep/);
+  });
+  it("does not signal when nothing was revoked", async () => {
+    m.revoke.mockResolvedValue(false);
+    await call(app(), "DELETE", `/v1/proxy-tokens/${TID}`);
+    expect(m.signal).not.toHaveBeenCalled();
   });
   it("404 when not found, 400 on a bad id", async () => {
     m.revoke.mockResolvedValue(false);

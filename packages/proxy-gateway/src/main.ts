@@ -3,7 +3,7 @@ import type * as net from "node:net";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, killSwitchRepo, killSwitches, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper } from "@dominusnode/shared";
+import { createLogger, closePool, getPool, usageRepo, agenticWalletRepo, connectWithRetry, nodeRepo, policyRepo, nodeCreditRepo, retentionRepo, tierRepo, payoutRepo, relayChargeRepo, relaySettleRetryRepo, reportReputationRepo, collusionRepo, starterCreditRepo, contributionRepo, killSwitchRepo, killSwitches, genesisRepo, networkStatusRepo, getProxyPorts, assertDistinctProxyPorts, reportTlsCapability, apiKeyPepper, proxyTokenRepo } from "@dominusnode/shared";
 import type { ActivePolicy } from "@dominusnode/shared";
 import { startProxyServer } from "./server.js";
 import { geoAvailable, initGeoCheck, lookupPeerGeo, classifyEgressIp } from "./geo-check.js";
@@ -22,6 +22,8 @@ import { loadProxyTls, parseRequireTls, createPlaintextAuthGuard, watchProxyTlsC
 import { envInt, setJobRunRecorder, JOB_RUN_UPSERT_SQL, type Job, type JobLogger, type LockPool } from "./jobs/runner.js";
 import * as nodeStatusJob from "./jobs/node-status.js";
 import * as userStatusJob from "./jobs/user-status.js";
+import * as proxyTokenStatusJob from "./jobs/proxy-token-status.js";
+import { forgetProxyToken } from "./auth.js";
 import * as maturityJob from "./jobs/maturity.js";
 import * as retentionJob from "./jobs/retention.js";
 import * as tiersJob from "./jobs/tiers.js";
@@ -38,7 +40,7 @@ import { getLatencyPercentiles } from "./stats.js";
 import { drainUnmetDemand, restoreUnmetDemand } from "./unmet-demand.js";
 import { parseTrustedProxyIps, loadTunnelTls } from "./node-tunnel/ingress.js";
 import { createEthersPayoutSender } from "./jobs/payout-sender-ethers.js";
-import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, terminateNodeSessions, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, fenceOnHeartbeatLoss, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
+import { getActiveSessionCount, terminateUserSessions, terminateNodeSessionsAbove, terminateNodeSessions, terminateProxyTokenSessions, liveProxyTokenIds, getActiveSessions, awaitInFlightSettlements, getInFlightSettlementCount, configureSessionRecovery, heartbeatActiveSessions, fenceOnHeartbeatLoss, recoverOrphanedSessions, configureSettledHook } from "./session-manager.js";
 
 const log = createLogger("proxy:main");
 
@@ -476,6 +478,16 @@ function startJobs(registry: NodeRegistry, getPolicy: () => ActivePolicy): Job[]
         return new Map(r.rows.map((x) => [x.id, x.status]));
       },
       terminate: (uid) => terminateUserSessions(uid),
+    },
+  }));
+  // Token revoke on another API instance reaches this gateway through proxy_tokens.
+  jobs.push(proxyTokenStatusJob.start({
+    logger: jobLog, intervalMs: envInt(process.env, "USER_STATUS_SWEEP_INTERVAL_MS", 30_000, 5_000, 3_600_000),
+    deps: {
+      liveTokenIds: liveProxyTokenIds,
+      findEnded: proxyTokenRepo.findEndedTokenIds,
+      terminate: terminateProxyTokenSessions,
+      forget: forgetProxyToken,
     },
   }));
   jobs.push(maturityJob.start({

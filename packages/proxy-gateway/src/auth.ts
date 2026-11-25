@@ -73,11 +73,56 @@ export async function recordProxyTokenUsage(tokenId: string, bytes: bigint, spen
   try {
     const r = await proxyTokenRepo.recordUsage(tokenId, bytes, spendMusd);
     if (!r.withinCaps || r.exhausted) {
-      for (const [k, v] of tokenCache) if (v.tokenId === tokenId) tokenCache.delete(k);
+      forgetProxyToken(tokenId);
       log.info("proxy token cap reached", { tokenId });
     }
   } catch (err) {
     log.error("proxy token usage update failed", { tokenId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+  }
+}
+
+/** Drop cached lookups of one token (revoked, exhausted or ended by the API). */
+export function forgetProxyToken(tokenId: string): void {
+  for (const [k, v] of tokenCache) if (v.tokenId === tokenId) tokenCache.delete(k);
+}
+
+/**
+ * Reserve a session's share of a token's remaining byte/spend budget at
+ * session start. Throws (fail closed) when the token cannot carry the session
+ * or the lookup fails; the caller refuses the session.
+ */
+export async function reserveProxyTokenBudget(
+  tokenId: string, wantBytes: number, pricePerGbMusd: bigint, fixedSpendMusd?: bigint | null,
+): Promise<proxyTokenRepo.TokenGrant> {
+  let g: proxyTokenRepo.TokenGrant | null;
+  try {
+    g = await proxyTokenRepo.reserveSessionBudget(tokenId, BigInt(Math.max(0, Math.trunc(wantBytes))), pricePerGbMusd, fixedSpendMusd);
+  } catch (err) {
+    log.error("proxy token reservation failed", { tokenId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+    throw new Error("Unable to verify proxy token budget. Please try again.");
+  }
+  if (!g) {
+    forgetProxyToken(tokenId);
+    throw new Error("Proxy token budget exhausted");
+  }
+  return g;
+}
+
+/** True for the gateway's refusal of a session its dn_proxy_ token cannot carry. */
+export function isProxyTokenBudgetError(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith("Proxy token budget");
+}
+
+/** Settle a session's token reservation against metered usage. Never throws. */
+export async function settleProxyTokenBudget(tokenId: string, grant: proxyTokenRepo.TokenGrant, bytes: bigint, spendMusd: bigint): Promise<void> {
+  try {
+    const r = await proxyTokenRepo.settleSessionBudget(tokenId, grant, bytes, spendMusd);
+    if (r.exhausted) {
+      forgetProxyToken(tokenId);
+      log.info("proxy token cap reached", { tokenId });
+    }
+  } catch (err) {
+    log.error("proxy token settle failed; reservation stays counted", { tokenId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
   }
 }
 

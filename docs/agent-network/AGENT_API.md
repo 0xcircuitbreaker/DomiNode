@@ -384,17 +384,42 @@ curl -x https://country-US:dn_proxy_XXXX@proxy.example.org:8443 https://httpbin.
 - Every token expires (`ttlSeconds` 60 .. 31536000, default 30 days).
 - Optional caps: `maxBytes` (gateway-metered bytes, 1 .. 10^15) and
   `maxSpendMusd` (µUSD at the locked relay price, or the prepaid amount for
-  x402/MPP sessions; 1 .. 10^13). Usage is added when a relay session settles,
-  with a conditional `UPDATE ... WHERE used + delta <= cap`; a session that
-  would cross a cap saturates the counter at the cap. The cap is checked when a
-  request authenticates, so the session in flight when the cap is crossed
-  finishes and **the next request is refused** (407). Concurrent sessions
-  started before the cap was reached can each finish, so a cap can be exceeded
-  by at most the traffic of sessions already running.
+  x402/MPP sessions; 1 .. 10^13). Caps are enforced per session, mid-stream:
+  - **At session start** the session reserves its share of the token's
+    remaining budget under a row lock: at most the bytes its wallet
+    reservation covers, the bytes left under `maxBytes`, and the bytes the
+    spend left under `maxSpendMusd` buys at the locked price (an x402/MPP
+    session needs its whole paid amount and paid bytes to fit; it is
+    refused rather than charged in full for fewer bytes). The reservation is counted
+    in `bytesUsed` / `spendUsedMusd` at once, so several sessions started
+    together near a cap, on any gateway, can never together be granted more
+    than the cap; the ones that do not fit are refused.
+  - **During the session** the gateway cuts the stream when it has carried
+    its granted bytes (the same cut as the wallet reservation cap).
+  - **At settlement** the reservation is replaced by the gateway-metered
+    usage and the unused part is returned to the token.
+  - A session the token cannot carry is refused: HTTP 403
+    `PROXY_TOKEN_EXHAUSTED` (CONNECT and plain requests), SOCKS5 general
+    failure; once a cap is reached the token itself is refused at
+    authentication (407). The check fails closed: if the reservation cannot
+    be made (database error) the session is refused.
+  - Because open sessions hold their reservation, a token whose budget is
+    held by sessions in flight can look `exhausted` until they settle. A
+    gateway crash leaves its sessions' reservations counted (fails closed).
 - Revocation and expiry take effect within 5 seconds (gateway lookup cache)
-  for new requests; a CONNECT tunnel already open runs until it closes.
+  for new requests. **Revoking a token also ends the tunnels and sessions
+  already open with it**: `DELETE /v1/proxy-tokens/:id` signals the
+  co-located gateway (`POST /internal/terminate-token-sessions/<id>`, the same
+  internal channel and secret as the per-user signal on admin suspend), which
+  settles each session for the bytes carried so far and closes its sockets.
+  Every gateway also runs a proxy-token sweep (`USER_STATUS_SWEEP_INTERVAL_MS`,
+  default 30 s) that ends open sessions of tokens revoked, expired or deleted
+  elsewhere, so split and multi-gateway deployments converge within one
+  interval.
 - The owner must stay active and verified. Admin suspension refuses every
-  token and also revokes them, so lifting the suspension does not revive them.
+  token and also revokes them, so lifting the suspension does not revive them;
+  the suspend signal and the user-status sweep end the owner's open sessions,
+  including those opened with a token.
 - At most 25 active (unrevoked, unexpired) tokens per account.
 - Legacy stateless `dn_proxy_<payload>.<hmac>` session tokens from
   `POST /api/auth/wallet/proxy-session` (they contain a `.`) keep working until
@@ -427,8 +452,12 @@ newest first (at most 100). `status` is `active`, `revoked`, `expired` or
 
 ### `DELETE /v1/proxy-tokens/:id`
 
-60 per hour. `{ "id": "<uuid>", "revoked": true }`; 404 when the token is not
-yours or is already revoked. The gateway refuses it within 5 seconds.
+60 per hour. `{ "id": "<uuid>", "revoked": true, "terminatedSessions": 2 }`;
+404 when the token is not yours or is already revoked. New requests are
+refused within 5 seconds and open sessions using the token are ended at once
+on the co-located gateway. When that gateway cannot be reached the response
+carries `warning` instead of `terminatedSessions`, and open sessions end at the
+next proxy-token sweep (about 30 s).
 
 ## Public policy and pricing
 

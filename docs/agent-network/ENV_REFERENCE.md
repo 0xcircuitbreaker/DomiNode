@@ -140,7 +140,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `DEMO_DIR` | `/demo` | `src/demo-seed.ts` |
 | `DEMO_MODE` |  | `src/demo-seed.ts` |
 | `DOMINUSNODE_DOMAIN` | `dominusnode.com` | `src/routes/federation.ts`, `src/routes/wallet-auth.ts` |
-| `JWT_SECRET` | `""` | `src/main.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
+| `JWT_SECRET` | `""` | `src/lib/gateway-signal.ts`, `src/main.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `MAX_REGISTERED_USERS` | `2500` | `src/routes/auth.ts`, `src/routes/wallet-auth.ts` |
 | `MCP_AGENT_SECRET` | `""` | `src/helpers/agent-rate-limit.ts`, `src/main.ts` |
 | `MFA_ENCRYPTION_KEY` |  | `src/main.ts` |
@@ -169,11 +169,11 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROBE_AUTH_SECRET` |  | `src/routes/v1/probe.ts` |
 | `PROXY_HOST` | `localhost` | `src/routes/proxy-config.ts` |
 | `PROXY_HTTP_PORT` |  | `src/routes/federation.ts` |
-| `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
+| `PROXY_INTERNAL_HOST` | `127.0.0.1` | `src/lib/gateway-signal.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `PROXY_INTERNAL_URL` |  | `src/routes/proxy-health.ts` |
 | `PROXY_PUBLIC_HOST` | `proxy.dominusnode.com` | `src/routes/discovery.ts`, `src/routes/federation.ts`, `src/routes/proxy-config.ts`, `src/routes/proxy-health.ts`, `src/routes/x402.ts` |
 | `PROXY_PUBLISH_PLAINTEXT` | `""` | `src/routes/federation.ts` |
-| `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
+| `PROXY_STATS_SECRET` |  | `src/lib/gateway-signal.ts`, `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |
 | `SECURITY_POLICY_URL` | `""` | `src/routes/discovery.ts` |
