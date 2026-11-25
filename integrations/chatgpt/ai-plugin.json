@@ -13,6 +13,6 @@
     "url": "https://api.dominusnode.com/.well-known/openapi.yaml"
   },
   "logo_url": "https://dominusnode.com/logo.png",
-  "contact_email": "0xcircuitbreaker@protonmail.com",
+  "contact_email": "contact@example.org",
   "legal_info_url": "https://dominusnode.com/legal"
 }

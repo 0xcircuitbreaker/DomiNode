@@ -229,7 +229,8 @@ export function parsePubkeyList(raw: string | undefined): string[] {
 
 export const OFFICIAL_SITE_NAME = "Dominus Node";
 export const OFFICIAL_OPERATOR_NAME = "Daedalus Development Group";
-export const OFFICIAL_CONTACT = "mailto:0xcircuitbreaker@protonmail.com";
+/** Placeholder; the real contact of record is set with OPERATOR_CONTACT at deploy time. */
+export const OFFICIAL_CONTACT = "mailto:contact@example.org";
 const GENERIC_SITE_NAME = "DominusNode-compatible relay";
 const GENERIC_OPERATOR_NAME = "Independent operator";
 const RESERVED_NAME_RE = /daedalus|\bddg\b|dominus\s*node\s*official/i;

@@ -41,7 +41,7 @@ DNS records (in the `dominusnode.com` zone):
 - Optional CAA record restricting issuance to the chosen CA.
 - Mail aliases to set up on `dominusnode.com` (optional): `abuse@dominusnode.com`
   and `security@dominusnode.com`, both forwarding to the published contact
-  `0xcircuitbreaker@protonmail.com`. That address stays the contact of record.
+  the operator contact set in `OPERATOR_CONTACT` (the contact of record).
 
 Secondary alias: `dominusnode.daedalusdevelopmentgroup.com` (DDG subdomain)
 

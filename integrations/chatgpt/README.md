@@ -95,3 +95,7 @@ signer key file.
 
 2.0 removes Stripe/PayPal, plans, slots, account/MFA flows, key/team/agentic-wallet tools,
 `dc-`/`residential-` prefixes and hardcoded prices. Exit selection is `country` + `ip_class`.
+
+## Contact email
+
+`ai-plugin.json` ships with the placeholder `contact_email: "contact@example.org"`. Replace it with your operator contact before publishing the plugin manifest.

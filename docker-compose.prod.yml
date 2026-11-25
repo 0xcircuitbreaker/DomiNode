@@ -291,6 +291,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/frontend.Dockerfile
+      args:
+        VITE_CONTACT_EMAIL: ${OPERATOR_CONTACT:-contact@example.org}
     restart: unless-stopped
     depends_on:
       - api
