@@ -13,7 +13,9 @@ COPY packages/frontend/ packages/frontend/
 # Install dependencies
 RUN npm ci --ignore-scripts --workspace=packages/frontend
 
-# Build frontend
+# Build frontend (public contact baked in at build time; placeholder by default)
+ARG VITE_CONTACT_EMAIL=contact@example.org
+ENV VITE_CONTACT_EMAIL=${VITE_CONTACT_EMAIL}
 RUN npm run build --workspace=packages/frontend
 
 # ─── Stage 2: Serve ─────────────────────────────────────────────────

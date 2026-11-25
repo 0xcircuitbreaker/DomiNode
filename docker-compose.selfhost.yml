@@ -233,7 +233,7 @@ services:
   frontend:
     logging: *default-logging
     profiles: [coordinator]
-    build: { context: ., dockerfile: infra/docker/frontend.Dockerfile, args: { NGINX_CONF: infra/nginx/selfhost.conf } }
+    build: { context: ., dockerfile: infra/docker/frontend.Dockerfile, args: { NGINX_CONF: infra/nginx/selfhost.conf, VITE_CONTACT_EMAIL: "${OPERATOR_CONTACT:-contact@example.org}" } }
     image: dominusnode-frontend:selfhost
     restart: unless-stopped
     depends_on:

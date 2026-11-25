@@ -71,9 +71,9 @@ describe("validation", () => {
     });
 
     it("should allow legitimate email providers", () => {
-      expect(isDisposableEmail("user@gmail.com")).toBe(false);
+      expect(isDisposableEmail("user@fastmail.com")).toBe(false);
       expect(isDisposableEmail("user@yahoo.com")).toBe(false);
-      expect(isDisposableEmail("user@protonmail.com")).toBe(false);
+      expect(isDisposableEmail("user@hotmail.com")).toBe(false);
       expect(isDisposableEmail("user@outlook.com")).toBe(false);
       expect(isDisposableEmail("user@company.io")).toBe(false);
     });
