@@ -1,4 +1,4 @@
-"""The 15 resources (73 methods), each written once as sans-I/O generators.
+"""The 16 resources (76 methods), each written once as sans-I/O generators.
 
 ``make_variants`` turns each core class into a sync and an async resource class.
 Results are the server's JSON as dicts (camelCase keys, as on the wire); see types.py.
@@ -843,6 +843,65 @@ class _ProxyResource(_Base):
     def get_config(self) -> Gen:
         return (yield _get("/api/proxy/config"))
 
+# ---------------------------------------------------------------- 3.17 proxyTokens
+PROXY_TOKEN_RE = re.compile(r"^dn_proxy_[A-Za-z0-9_-]{43}\Z")
+PROXY_TOKEN_MAX_BYTES = 1_000_000_000_000_000
+PROXY_TOKEN_MAX_SPEND_MUSD = 10_000_000_000_000
+_POS_INT_RE = re.compile(r"^[1-9][0-9]{0,15}\Z")
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _cap(v: Any, maximum: int, name: str) -> str:
+    if isinstance(v, bool):
+        raise invalid_arg(f"{name} must be a positive integer")
+    if isinstance(v, int):
+        n = v
+    elif isinstance(v, str) and _POS_INT_RE.match(v):
+        n = int(v)
+    else:
+        raise invalid_arg(f"{name} must be a positive integer (int or digit string)")
+    if n < 1 or n > maximum:
+        raise invalid_arg(f"{name} must be between 1 and {maximum}")
+    return str(n)
+
+
+class _ProxyTokensResource(_Base):
+    """Scoped, revocable dn_proxy_ tokens for the proxy password field. /v1 agent routes."""
+
+    def create(
+        self,
+        label: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+        max_bytes: Any = None,
+        max_spend_musd: Any = None,
+    ) -> Gen:
+        """POST /v1/proxy-tokens -> token metadata plus ``token`` as a Secret (shown once)."""
+        body: Dict[str, Any] = {}
+        if label is not None:
+            if not isinstance(label, str) or len(label) > 64 or _CTRL_RE.search(label):
+                raise invalid_arg("label must be at most 64 printable characters")
+            body["label"] = label
+        if ttl_seconds is not None:
+            body["ttlSeconds"] = validate_int_range(ttl_seconds, "ttl_seconds", 60, 365 * 24 * 3600)
+        if max_bytes is not None:
+            body["maxBytes"] = _cap(max_bytes, PROXY_TOKEN_MAX_BYTES, "max_bytes")
+        if max_spend_musd is not None:
+            body["maxSpendMusd"] = _cap(max_spend_musd, PROXY_TOKEN_MAX_SPEND_MUSD, "max_spend_musd")
+        r = yield _post("/v1/proxy-tokens", body, "agent")
+        tok = r.get("token") if isinstance(r, dict) else None
+        if not isinstance(tok, str) or not PROXY_TOKEN_RE.match(tok):
+            raise ProtocolError("server returned a malformed proxy token")
+        return {**r, "token": Secret(tok)}
+
+    def list(self) -> Gen:
+        """GET /v1/proxy-tokens -> {tokens: [...], maxActive} (no secrets)."""
+        return (yield _get("/v1/proxy-tokens", "agent"))
+
+    def revoke(self, id: str) -> Gen:  # noqa: A002
+        """DELETE /v1/proxy-tokens/:id -> {id, revoked}."""
+        return (yield _delete(f"/v1/proxy-tokens/{seg(validate_uuid(id, 'id'))}", "agent"))
+
+
 
 AuthResource, AsyncAuthResource = make_variants(_AuthResource)
 WalletAuthResource, AsyncWalletAuthResource = make_variants(_WalletAuthResource)
@@ -859,6 +918,7 @@ CreditsResource, AsyncCreditsResource = make_variants(_CreditsResource)
 PayoutWalletResource, AsyncPayoutWalletResource = make_variants(_PayoutWalletResource)
 PayoutsResource, AsyncPayoutsResource = make_variants(_PayoutsResource)
 ProxyResource, AsyncProxyResource = make_variants(_ProxyResource)
+ProxyTokensResource, AsyncProxyTokensResource = make_variants(_ProxyTokensResource)
 
 
 # ---------------------------------------------------------------- pagination helpers

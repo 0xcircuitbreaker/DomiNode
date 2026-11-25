@@ -1,13 +1,13 @@
 import * as net from "node:net";
 import * as tls from "node:tls";
 import type { PlaintextAuthGuard } from "./proxy-tls.js";
-import { createLogger, userRepo, planRepo, pqTlsOptions } from "@dominusnode/shared";
+import { createLogger, planRepo, pqTlsOptions } from "@dominusnode/shared";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle, isTunnelClient } from "./tunnel-lifecycle.js";
 import { attachByteCounters } from "./counting-stream.js";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import { startSession, endSession, registerSessionDestroy, unregisterSessionDestroy } from "./session-manager.js";
-import { parseProxyOptions, unsupportedTargetingMessage, type ProxyOptions } from "./auth.js";
+import { parseProxyOptions, verifyProxyCredential, unsupportedTargetingMessage, type ProxyOptions } from "./auth.js";
 import { checkClientCountry } from "./geo-check.js";
 import { validateTarget, isValidHostname, isValidPort } from "./target-validator.js";
 import { incrementUserConns, decrementUserConns } from "./connection-tracker.js";
@@ -160,8 +160,8 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   if (!passwdBuf) { clearTimeout(totalHandshakeTimer); clientSocket.end(); return; }
   const apiKey = passwdBuf.toString("utf-8");
 
-  // Authenticate
-  if (!apiKey.startsWith("dn_live_")) {
+  // Authenticate (dn_live_ key, opaque dn_proxy_ token, or legacy proxy session token)
+  if (!apiKey.startsWith("dn_live_") && !apiKey.startsWith("dn_proxy_")) {
     clearTimeout(totalHandshakeTimer);
     recordAuthFailure(clientIp);
     clientSocket.write(Buffer.from([USERPASS_VER, 0x01])); // auth failure
@@ -174,9 +174,10 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
   let proxyOptions: ProxyOptions;
   let teamId: string | null = null;
   let walletAddress: string | null = null;
+  let proxyTokenId: string | null = null;
 
   try {
-    const result = await userRepo.findUserByApiKey(apiKey);
+    const result = await verifyProxyCredential(apiKey);
     if (!result) {
       clearTimeout(totalHandshakeTimer);
       recordAuthFailure(clientIp);
@@ -184,24 +185,9 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       clientSocket.end();
       return;
     }
-    // Reject suspended/deleted users at SOCKS5 auth layer
-    if (result.user.status !== "active") {
-      clearTimeout(totalHandshakeTimer);
-      recordAuthFailure(clientIp);
-      clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
-      clientSocket.end();
-      return;
-    }
-    // Reject unverified email (parity with HTTP proxy auth.ts)
-    if (!result.user.email_verified) {
-      clearTimeout(totalHandshakeTimer);
-      recordAuthFailure(clientIp);
-      clientSocket.write(Buffer.from([USERPASS_VER, 0x01]));
-      clientSocket.end();
-      return;
-    }
+    proxyTokenId = result.proxyTokenId;
     userId = result.user.id;
-    teamId = result.apiKey.team_id ?? null;
+    teamId = result.teamId;
     logTargetHosts = result.user.log_target_hosts ?? false;
     walletAddress = result.user.wallet_address ?? null;
     proxyOptions = parseProxyOptions(username);
@@ -436,6 +422,7 @@ async function handleSocks5Connection(clientSocket: net.Socket, relay: RelayRunt
       nodeOwnerUserId: upstream.node.ownerUserId,
       destPort: targetPort,
       requesterWallet: walletAddress,
+      proxyTokenId,
       nodeBytes: () => {
         const rep = (psStream as { nodeReport?: { bytesIn: number; bytesOut: number } | null }).nodeReport;
         return rep ? BigInt(rep.bytesIn) + BigInt(rep.bytesOut) : null;

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `proxyTokens.create/list/revoke`: scoped, revocable `dn_proxy_` proxy tokens with expiry and byte/spend caps; the token is returned once in a `Secret`.
 - `proxy.startForwarder()`: loopback HTTP proxy for browsers that relays over TLS 1.3 to the gateway and injects the key; per-start token required unless `allowTokenless`.
 
 ## [2.4.0] - 2026-11-14

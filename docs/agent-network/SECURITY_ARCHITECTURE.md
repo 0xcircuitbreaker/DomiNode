@@ -45,7 +45,7 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 ### 2.2 Relay gateway front end (HTTP :8080, SOCKS5 :1080, TLS variants)
 - **Current:** TLS proxy listeners already exist. `packages/proxy-gateway/src/main.ts:153-168` loads `loadProxyTls(process.env)`: `PROXY_TLS_PORT` starts an HTTPS proxy (`server.ts:1212`) and an optional SOCKS5-over-TLS port (`socks5.ts:586`). `PROXY_REQUIRE_TLS=true` (requires `PROXY_TLS_PORT`) plus `createPlaintextAuthGuard` refuse credentials on the plaintext 8080/1080 listeners; in production without it the gateway logs a warning that credentials travel in plaintext. Both TLS servers use `minVersion: "TLSv1.2"` and the default group list (no PQ hybrid pinned). HTTPS through the relay is end-to-end CONNECT TLS between requester and target, which we do not touch (correct: the exit node cannot read it).
 - **Threat:** proxy credentials (`dn_live_` in Proxy-Authorization / SOCKS5 user/pass) cross the network to the gateway in **plaintext** on the plaintext listeners whenever a deployment leaves `PROXY_REQUIRE_TLS` off or a client uses 8080/1080. That is a present-day problem, bigger than quantum.
-- **Target (narrow; the listeners are built):** (1) in `server.ts:1212` and `socks5.ts:586` raise `minVersion` to `"TLSv1.3"` and set `ecdhCurve: "X25519MLKEM768:X25519"` (S); (2) set `PROXY_REQUIRE_TLS=true` in production so the plaintext auth guard rejects credentials on 8080/1080 (S, config); (3) SDKs/MCP default to the TLS proxy URL (M across 6 SDKs); (4) consider per-key proxy passwords distinct from the API key (scoped "proxy tokens", `dn_proxy_` already reserved in scrubbers) so a leaked proxy credential cannot call `/v1` money routes.
+- **Target (narrow; the listeners are built):** (1) in `server.ts:1212` and `socks5.ts:586` raise `minVersion` to `"TLSv1.3"` and set `ecdhCurve: "X25519MLKEM768:X25519"` (S); (2) set `PROXY_REQUIRE_TLS=true` in production so the plaintext auth guard rejects credentials on 8080/1080 (S, config); (3) SDKs/MCP default to the TLS proxy URL (M across 6 SDKs); (4) per-key proxy passwords distinct from the API key: **done** — scoped `dn_proxy_` proxy tokens (see 2.6a), so a leaked proxy credential cannot call `/v1` money routes.
 - **Verify:** `curl --proxy https://…:$PROXY_TLS_PORT` works and `openssl s_client -groups X25519MLKEM768` negotiates the hybrid group; with `PROXY_REQUIRE_TLS=true` a credentialed request on 8080/1080 is refused; packet capture shows no `dn_live_` on the wire. **Effort S** for the gateway change, **M** overall with SDK defaults and proxy tokens.
 
 ### 2.3 Node tunnel (gateway ↔ node-agent)
@@ -76,6 +76,14 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - **Current:** `dn_live_`/`dn_node_` keys stored as SHA-256 hex (`hashApiKey`), chosen for O(1) proxy lookup.
 - **Threat:** keys are high-entropy random, so plain SHA-256 is not crackable offline; preimage resistance is unaffected by quantum in practice (Grover on 256-bit ⇒ 128-bit). The realistic risk is DB exfiltration enabling **lookup confirmation** and correlation, not recovery.
 - **Target:** move to `HMAC-SHA256(pepper, key)` with the pepper outside the DB (file/TPM-sealed), keyed by `hash_version` column to migrate lazily on next successful auth (dual lookup during transition: try v2, fall back to v1 and rewrite). Argon2id is **not** appropriate for random 256-bit API keys (adds latency on every proxy request, no security gain); Argon2id (m=64 MiB, t=3, p=1, per RFC 9106 second recommendation) is for **human admin passwords**, replacing bcrypt in `dashboard/src/routes/auth.ts` on next login. Confirm key entropy ≥ 128 bits in the generator. **Effort M.**
+
+### 2.6a Scoped proxy tokens (`dn_proxy_`)
+- **Current:** opaque `dn_proxy_` + 32 random bytes (base64url), minted by `POST /v1/proxy-tokens` (AGENT_API.md "Proxy tokens"). Table `proxy_tokens` stores only the SHA-256 hex (`CHAR(64)`, length CHECK), never the plaintext; the secret is returned once (`Cache-Control: no-store`; SDKs wrap it in `Secret`). Every token expires (<= 1 year); optional byte and µUSD spend caps with floor/ceiling CHECKs; at most 25 active per account.
+- **Gateway:** `verifyProxyCredential` (`proxy-gateway/src/auth.ts`, shared by HTTP and SOCKS5) looks the hash up with `revoked_at IS NULL AND expires_at > now()` and both caps unreached, then requires the owner `active` and verified. A 5 s positive cache (10k entries, oldest evicted) bounds revocation latency; reaching a cap drops the entry at once. Usage is added at settlement from gateway-metered bytes only (exit nodes are untrusted) with a conditional `UPDATE ... WHERE used + delta <= cap`, saturating at the cap otherwise, so the next request is refused.
+- **Scope:** proxy tokens authenticate to the gateway only; `/v1` and `/api` reject them (`requireAgentPrincipal` accepts `dn_live_`/`dn_test_` keys and wallet JWTs). A leaked token exposes at most its caps until it expires or is revoked; the account key and wallets stay safe.
+- **Scrubbing:** `dn_proxy_` is redacted from client-facing errors in the MCP server and all SDKs.
+- **Legacy:** stateless HMAC `dn_proxy_<payload>.<hmac>` session tokens (wallet-auth proxy session, <= 24 h) are still accepted until they expire; they cannot be revoked individually.
+- **Known limits:** caps are enforced between requests, not mid-stream (concurrent sessions started before a cap can overshoot it by their own traffic); usage of a session settled by another gateway's crash recovery is not counted against the token.
 
 ### 2.7 Wallet signatures (EIP-191 / secp256k1) and payment rails
 - **Current:** wallet-identity principals sign EIP-191 challenges; x402 (`packages/billing/src/adapters/rails/x402-rail.ts`, Coinbase facilitator JWT with Ed25519/ES256 in `facilitators/coinbase.ts`), MPP HMAC (`mpp-rail.ts`), Tempo webhook HMAC (`tempo.ts`), NOWPayments HMAC-SHA512 IPN (`billing/src/nowpayments.ts`).
@@ -128,7 +136,7 @@ Effort: S ≤ 1 day, M 2–5 days, L 1–3 weeks.
 - Pin Actions by SHA, npm trusted publishing with provenance, cosign keyless on images (M).
 
 **Before public launch**
-- Existing TLS proxy port as SDK/MCP default; scoped `dn_proxy_` tokens (M).
+- Existing TLS proxy port as SDK/MCP default (M); scoped `dn_proxy_` tokens: done (2.6a).
 - Admin behind WireGuard + WebAuthn; Argon2id for admin passwords (M).
 - API key hashing → HMAC with pepper, lazy migration (M).
 - Gateway pre-auth rate limits, direct exposure layout for relay hosts, CF for API (M).

@@ -15,6 +15,7 @@ const mockGetSystemStats = vi.fn();
 const mockFindUserById = vi.fn();
 const mockRevokeAllApiKeys = vi.fn();
 const mockRevokeAllForUser = vi.fn();
+const mockRevokeAllProxyTokens = vi.fn();
 const mockDeleteMfaConfig = vi.fn();
 const mockClientQuery = vi.fn(async (sql: string) =>
   sql.includes("SELECT admin_role FROM users") ? { rows: [{ admin_role: "root_admin" }] } : { rows: [], rowCount: 1 });
@@ -40,6 +41,9 @@ vi.mock("@dominusnode/shared", () => ({
   },
   refreshTokenRepo: {
     revokeAllForUser: (...args: unknown[]) => mockRevokeAllForUser(...args),
+  },
+  proxyTokenRepo: {
+    revokeAllForUser: (...args: unknown[]) => mockRevokeAllProxyTokens(...args),
   },
   mfaRepo: {
     deleteMfaConfig: (...args: unknown[]) => mockDeleteMfaConfig(...args),
@@ -227,6 +231,8 @@ describe("admin routes", () => {
       expect(mockSuspendUser).toHaveBeenCalledWith(VALID_UUID, expect.anything());
       expect(mockRevokeAllApiKeys).toHaveBeenCalledWith(VALID_UUID, expect.anything());
       expect(mockRevokeAllForUser).toHaveBeenCalledWith(VALID_UUID, expect.anything());
+      // dn_proxy_ tokens are revoked in the same transaction
+      expect(mockRevokeAllProxyTokens).toHaveBeenCalledWith(VALID_UUID, expect.anything());
     });
 
     it("should return 400 when trying to suspend yourself", async () => {

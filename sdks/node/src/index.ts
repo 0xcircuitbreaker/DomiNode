@@ -8,6 +8,8 @@ export { WalletAuthResource } from "./resources/wallet-auth.js";
 export type { WalletChallenge, WalletVerifyResult, WalletLinkResult } from "./resources/wallet-auth.js";
 export { KeysResource } from "./resources/keys.js";
 export type { ApiKeyInfo, CreatedApiKey } from "./resources/keys.js";
+export { ProxyTokensResource, PROXY_TOKEN_RE } from "./resources/proxy-tokens.js";
+export type { ProxyTokenInfo, CreatedProxyToken, CreateProxyTokenOptions, ProxyTokenStatus } from "./resources/proxy-tokens.js";
 export { WalletResource, CRYPTO_CURRENCIES } from "./resources/wallet.js";
 export type { WalletBalance, AgentWalletBalance, WalletTransaction, CryptoInvoice, CryptoInvoiceStatus, Forecast, CryptoCurrency } from "./resources/wallet.js";
 export { AgenticWalletResource } from "./resources/agent-wallet.js";

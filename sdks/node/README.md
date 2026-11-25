@@ -137,6 +137,18 @@ await dn.credits.withdraw({ amountMusd: 2_000_000n, signer }); // returns idempo
 await dn.payouts.list();
 ```
 
+## Proxy tokens (keep the API key out of proxy URLs)
+
+```ts
+const t = await dn.proxyTokens.create({ label: "scraper", ttlSeconds: 86400, maxBytes: 5_000_000_000n, maxSpendMusd: "2000000" });
+// t.token is a Secret: printed as [REDACTED]; reveal() once and hand it to the tool that needs a proxy
+const proxyUrl = `https://country-US:${t.token.reveal()}@proxy.dominusnode.com:8443`;
+await dn.proxyTokens.list();      // status, expiry, bytes/spend used (no secrets)
+await dn.proxyTokens.revoke(t.id); // refused by the gateway within seconds
+```
+
+The gateway refuses the token once it is revoked, expired, or at a byte or spend cap.
+
 ## Resources
 
 | Resource | Methods |
