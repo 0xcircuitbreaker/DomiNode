@@ -40,8 +40,8 @@ DNS records (in the `dominusnode.com` zone):
 
 - Optional CAA record restricting issuance to the chosen CA.
 - Mail aliases to set up on `dominusnode.com` (optional): `abuse@dominusnode.com`
-  and `security@dominusnode.com`, both forwarding to the published contact
-  the operator contact set in `OPERATOR_CONTACT` (the contact of record).
+  and `security@dominusnode.com`, both forwarding to the operator contact set in
+  `OPERATOR_CONTACT` (the contact of record).
 
 Secondary alias: `dominusnode.daedalusdevelopmentgroup.com` (DDG subdomain)
 
@@ -196,7 +196,7 @@ The cache holds for up to 5 minutes after publishing. Settings:
 | `COORD_TUNNEL_URL` | `wss://` tunnel URL. Default `wss://relay.<first hostname>/v1/tunnel`. |
 | `PROXY_PUBLIC_HOST` | Public proxy host. Default `proxy.<first hostname>`. |
 | `COORD_ADDITIONAL_PUBKEYS` | Rotation keys listed next to the signer (hex, comma list). A malformed entry is an error, not skipped. Agents pin them only when their fingerprints are passed to `--trust`. |
-| `OFFICIAL_COORD_PUBKEYS` | Keys that get the official name and default contact. Other keys get neutral branding. |
+| `OFFICIAL_COORD_PUBKEYS` | Keys that get the official site and operator name (the contact always comes from `OPERATOR_CONTACT`). Other keys get neutral branding. |
 | `SITE_NAME`, `OPERATOR_NAME`, `OPERATOR_CONTACT`, `ABUSE_CONTACT` | Branding and contacts shown in the document. |
 
 A node joins with `--coordinator <domain> --trust sha256:<fp>[,sha256:<fp>...]`.

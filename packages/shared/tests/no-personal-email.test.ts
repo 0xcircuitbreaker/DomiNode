@@ -7,8 +7,11 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(__dirname, "..", "..", "..");
 const PERSONAL = /[a-z0-9._%+-]+@(?:gmail|googlemail|protonmail|proton)\.(?:com|me|ch)\b/i;
 
+let inGit = true;
+try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: ROOT, stdio: "ignore" }); } catch { inGit = false; }
+
 describe("tracked files", () => {
-  it("contain no gmail/protonmail addresses", () => {
+  it.skipIf(!inGit)("contain no gmail/protonmail addresses", () => {
     const files = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, maxBuffer: 64 << 20 })
       .toString().split("\0").filter(Boolean);
     const hits: string[] = [];

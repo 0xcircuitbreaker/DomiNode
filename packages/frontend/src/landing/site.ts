@@ -32,5 +32,10 @@ export const API_LLMS_URL = `${API_BASE}/llms.txt`;
 export const ABUSE_URL = env["VITE_ABUSE_URL"] || "/report-abuse";
 export const PROXY_HOST = "proxy.dominusnode.com";
 /** Build-time contact (VITE_CONTACT_EMAIL, from OPERATOR_CONTACT); placeholder by default. */
-export const CONTACT_EMAIL = (env["VITE_CONTACT_EMAIL"] || "contact@example.org").replace(/^mailto:/i, "");
+export function contactEmail(raw: string | undefined): string {
+  const v = (raw ?? "").trim().replace(/^mailto:/i, "");
+  // Plain address only: anything else (other schemes, query strings, spaces) falls back.
+  return /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,63}$/.test(v) ? v : "contact@example.org";
+}
+export const CONTACT_EMAIL = contactEmail(env["VITE_CONTACT_EMAIL"]);
 export const NODE_IMAGE = "ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.1";
