@@ -82,6 +82,9 @@ export const AUTHENTICATED_TOOLS = [
   "dominusnode_payouts_list",
   "dominusnode_node_update_caps",
   "dominusnode_session_report",
+  "dominusnode_proxy_token_create",
+  "dominusnode_proxy_token_list",
+  "dominusnode_proxy_token_revoke",
 ] as const;
 
 export const REMOVED_TOOLS = [

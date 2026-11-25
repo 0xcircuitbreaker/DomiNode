@@ -51,12 +51,13 @@ Email/password registration, login and email verification are human flows (admin
 
 Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hour per process; successful sign-ins do not count.
 
-## Authenticated mode: 66 tools
+## Authenticated mode: 69 tools
 
 **Relay fetch and proxy config**
 - `dominusnode_fetch`: GET/HEAD through the HTTP proxy gateway (CONNECT tunnel for https, full-URL request for http). Options: `country` (`country-XX`), `ip_class` (`class-residential|dc|mobile`), `session_id` (`session-<id>`, sticky exit), `allow_http` (`allowhttp-1`). Client-side SSRF checks incl. DNS rebinding (every resolved IP is checked), ports 80/443 only, no redirects, 10MB cap, credentials scrubbed from errors. Responses over plaintext are flagged when the gateway sends `X-DominusNode-Exit-Visible: 1`. Output options: `format` (`markdown` default, `text`, or `raw`; conversion applies to HTML responses only, with script/style/comments stripped), `max_length` (default 20000 chars, max 200000) and `start_index` for paging (the body ends with `[truncated, next start_index=N]` when more remains), and `user_agent` (`chrome-desktop`, `firefox-desktop`, `safari-mobile`, `default`, or a custom printable-ASCII string up to 256 chars with no CR/LF and no credentials). `Authorization`, `Proxy-Authorization` and `User-Agent` in `headers` are still dropped. The result summary shows the response body bytes received (up to the 10MB cap) and the returned characters; billing is metered by the gateway on all bytes through the exit, headers and TLS included. Each page is a separate fetch and is billed again.
 - `dominusnode_get_proxy_config`: endpoints, username flags, live pricing and policy for use with curl/SDKs.
 - `dominusnode_get_proxy_status`, `dominusnode_get_active_sessions`
+- `dominusnode_proxy_token_create`, `dominusnode_proxy_token_list`, `dominusnode_proxy_token_revoke`: scoped `dn_proxy_` tokens for the proxy password field (expiry, optional byte and µUSD spend caps, revocable) so the `dn_live_` key never goes into proxy URLs. The token is shown once.
 
 **Network (public)**: `dominusnode_network_policy`, `dominusnode_network_pricing`, `dominusnode_network_stats`, `dominusnode_status`
 
@@ -109,7 +110,7 @@ DOMINUSNODE_MCP_HTTP_PORT=3333 npx -y @dominusnode/mcp-server   # or: npx -y @do
 - Every request needs `Authorization: Bearer dn_live_...`. A session is bound to the key that opened
   it; another key gets `404` for that session id. The key is never logged and is scrubbed from every
   response body.
-- The tool set is the same 66-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
+- The tool set is the same 69-tool authenticated set as stdio. `DOMINUSNODE_API_KEY` must be unset in
   remote mode (the operator key never serves remote agents). `DOMINUSNODE_WALLET_KEY_FILE` and
   `DOMINUSNODE_PAYOUT_WALLET_KEY_FILE` are ignored for remote sessions, so the signing tools
   (node register, withdraw, payout wallet) refuse; remote agents sign with their own SDK or stdio server.

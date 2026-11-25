@@ -15,8 +15,15 @@ WEIRD = "a/b c?d"
 WEIRD_ENC = "a%2Fb%20c%3Fd"
 KEY = API_KEY
 
+PTOK = "dn_proxy_" + "Q" * 43
+
 # (name, call, method, path+query, body (None = no body), auth: "jwt" | "key" | "none", response)
 CASES = [
+    # proxyTokens (3)
+    ("proxy_tokens.create", lambda c: c.proxy_tokens.create("ci", 3600, 1000, "5000"), "POST", "/v1/proxy-tokens",
+     {"label": "ci", "ttlSeconds": 3600, "maxBytes": "1000", "maxSpendMusd": "5000"}, "key", {"id": U, "token": PTOK}),
+    ("proxy_tokens.list", lambda c: c.proxy_tokens.list(), "GET", "/v1/proxy-tokens", None, "key", None),
+    ("proxy_tokens.revoke", lambda c: c.proxy_tokens.revoke(U), "DELETE", f"/v1/proxy-tokens/{U}", None, "key", None),
     # auth (4)
     ("auth.verify_key", lambda c: c.auth.verify_key(KEY), "POST", "/api/auth/verify-key", {"apiKey": KEY}, "none", None),
     ("auth.refresh", lambda c: c.auth.refresh("rt"), "POST", "/api/auth/refresh", {"refreshToken": "rt"}, "none", None),
@@ -206,18 +213,37 @@ def test_wallet_verify_stores_tokens_unless_mfa(rec: Recorder) -> None:
     assert c.is_connected
 
 
-def test_method_count_is_73() -> None:
+def test_method_count_is_76() -> None:
     from conftest import new_client
 
     c = new_client(Recorder())
     names = "auth wallet_auth keys wallet agentic_wallets teams usage sessions x402 network nodes credits " \
-            "payout_wallet payouts proxy".split()
+            "payout_wallet payouts proxy proxy_tokens".split()
     total = 0
     for n in names:
         core = type(getattr(c, n)).__mro__[1]
         total += len([m for m in vars(core) if not m.startswith("_") and m != "set_lookup"])
-    assert len(names) == 15 and total == 73
+    assert len(names) == 16 and total == 76
     for member in ("connect_with_key", "disconnect", "is_connected"):
         assert hasattr(c, member)
     for removed in ("plans", "slots", "admin", "connect_with_credentials", "complete_mfa"):
         assert not hasattr(c, removed)
+
+
+def test_proxy_tokens_create_wraps_secret_and_validates(rec: Recorder, client: Any) -> None:
+    from dominusnode import ProtocolError, ValidationError
+
+    rec.add(200, {"id": U, "token": PTOK, "status": "active"})
+    r = client.proxy_tokens.create(label="ci", max_bytes=10)
+    assert isinstance(r["token"], Secret) and r["token"].reveal() == PTOK
+    assert PTOK not in repr(r) and PTOK not in str(r)
+    n = len(rec.requests)
+    for kw in ({"ttl_seconds": 5}, {"max_bytes": 0}, {"max_spend_musd": "1.5"}, {"max_bytes": True}, {"label": "x" * 65}):
+        with pytest.raises(ValidationError):
+            client.proxy_tokens.create(**kw)
+    with pytest.raises(ValidationError):
+        client.proxy_tokens.revoke("a/b")
+    assert len(rec.requests) == n
+    rec.add(200, {"id": U, "token": "dn_live_nope"})
+    with pytest.raises(ProtocolError):
+        client.proxy_tokens.create()

@@ -218,3 +218,38 @@ describe("auth", () => {
     expect(m.calls[0].headers.Authorization).toBeUndefined();
   });
 });
+
+describe("proxyTokens", () => {
+  const TOKEN = "dn_proxy_" + "Q".repeat(43);
+  const info = { id: UUID, label: "ci", status: "active", expiresAt: "t", maxBytes: "1000", maxSpendMusd: null, bytesUsed: "0", spendUsedMusd: "0", revokedAt: null, createdAt: "t" };
+  it("create sends caps as strings with the raw key and wraps the token in a Secret", async () => {
+    const { client, calls } = await connected([201, { ...info, token: TOKEN }]);
+    const t = await client.proxyTokens.create({ label: "ci", ttlSeconds: 3600, maxBytes: 1000n, maxSpendMusd: "5000" });
+    expect(calls[0]).toMatchObject({ url: `${B}/v1/proxy-tokens`, method: "POST", body: { label: "ci", ttlSeconds: 3600, maxBytes: "1000", maxSpendMusd: "5000" } });
+    expect(calls[0].headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    expect(t.token).toBeInstanceOf(Secret);
+    expect(t.token.reveal()).toBe(TOKEN);
+    expect(JSON.stringify(t)).not.toContain(TOKEN);
+    expect(inspect(t)).not.toContain(TOKEN);
+  });
+  it("create validates before sending", async () => {
+    const { client, calls } = await connected();
+    await expect(client.proxyTokens.create({ ttlSeconds: 5 })).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.proxyTokens.create({ maxBytes: 0 })).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.proxyTokens.create({ maxSpendMusd: "1.5" })).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.proxyTokens.create({ label: "x".repeat(65) })).rejects.toBeInstanceOf(ValidationError);
+    expect(calls).toHaveLength(0);
+  });
+  it("create refuses a malformed token from the server", async () => {
+    const { client } = await connected([201, { ...info, token: "dn_live_x" }]);
+    await expect(client.proxyTokens.create()).rejects.toBeInstanceOf(ProtocolError);
+  });
+  it("list / revoke", async () => {
+    const { client, calls } = await connected([200, { tokens: [info], maxActive: 25 }], [200, { id: UUID, revoked: true }]);
+    expect((await client.proxyTokens.list()).tokens).toHaveLength(1);
+    await client.proxyTokens.revoke(UUID);
+    expect(calls[0]).toMatchObject({ url: `${B}/v1/proxy-tokens`, method: "GET" });
+    expect(calls[1]).toMatchObject({ url: `${B}/v1/proxy-tokens/${UUID}`, method: "DELETE" });
+    await expect(client.proxyTokens.revoke("a/b")).rejects.toBeInstanceOf(ValidationError);
+  });
+});

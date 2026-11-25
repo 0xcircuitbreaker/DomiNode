@@ -62,6 +62,11 @@ export const RELAY_EXPORT_QUERIES: ReadonlyArray<{ key: string; table: string; s
           ORDER BY created_at DESC LIMIT ${EXPORT_ROW_CAP}`,
   },
   {
+    key: "proxyTokens", table: "proxy_tokens",
+    sql: `SELECT id, label, expires_at, max_bytes, max_spend_musd, bytes_used, spend_used_musd, revoked_at, created_at
+          FROM proxy_tokens WHERE user_id = $1 ORDER BY created_at DESC LIMIT ${EXPORT_ROW_CAP}`,
+  },
+  {
     key: "mppTransactions", table: "mpp_transactions",
     sql: `SELECT id, amount_musd, excess_musd, status, created_at
           FROM mpp_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT ${EXPORT_ROW_CAP}`,

@@ -99,6 +99,17 @@ r = dn.credits.withdraw(5_000_000, signer)   # µUSD (int or digit string, never
 r["idempotencyKey"]                          # reuse it to retry safely
 ```
 
+## Proxy tokens (keep the API key out of proxy URLs)
+
+```python
+t = dn.proxy_tokens.create(label="scraper", ttl_seconds=86400, max_bytes=5_000_000_000, max_spend_musd="2000000")
+proxy_url = f"https://country-US:{t['token'].reveal()}@proxy.dominusnode.com:8443"  # token is a Secret
+dn.proxy_tokens.list()          # status, expiry, bytes/spend used (no secrets)
+dn.proxy_tokens.revoke(t["id"])  # refused by the gateway within seconds
+```
+
+The gateway refuses the token once it is revoked, expired, or at a byte or spend cap.
+
 ## Money
 
 - Server money values are `{"musd": "<integer µUSD>", "usd": "<6 decimals>"}`; 1 USD = 1,000,000 µUSD.

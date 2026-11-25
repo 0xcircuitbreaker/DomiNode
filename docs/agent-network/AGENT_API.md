@@ -39,6 +39,9 @@ extension use these exact shapes.
 | `POST /v1/credits/withdraw` | agent | [Withdrawals](#withdrawals) |
 | `GET /v1/payouts` | agent | [Withdrawals](#withdrawals) |
 | `POST /v1/sessions/:id/report` | agent | [Burn reports](#burn-reports) |
+| `POST /v1/proxy-tokens` | agent (verified) | [Proxy tokens](#proxy-tokens) |
+| `GET /v1/proxy-tokens` | agent | [Proxy tokens](#proxy-tokens) |
+| `DELETE /v1/proxy-tokens/:id` | agent | [Proxy tokens](#proxy-tokens) |
 | `GET /v1/starter-credits` | agent | [Launch additions](#launch-additions) |
 | `POST /v1/starter-credits/claim` | agent (wallet identity) | [Launch additions](#launch-additions) |
 
@@ -340,6 +343,70 @@ in `node_reports` (weighting by 30-day spend comes later) and increment the node
 Errors: `404` (not found / not yours), `400 NOT_RELAY_SESSION | SESSION_TOO_OLD`,
 `409 ALREADY_REPORTED`, `409 REPORT_LIMIT` (daily cap reached; retrying today
 will not help, so it is not a 429).
+
+## Proxy tokens
+
+Scoped, revocable credentials for the proxy password field, so the `dn_live_`
+key never has to appear in a proxy URL, a browser profile or a tool config. A
+proxy token authenticates only to the gateway (HTTP, HTTPS-proxy and SOCKS5
+listeners); it cannot call `/v1` or `/api` routes. Traffic is billed to the
+token owner's prepaid wallet exactly as with the API key (the `wallet-<uuid>`
+flag still selects an agentic wallet).
+
+```bash
+curl -x https://country-US:dn_proxy_XXXX@proxy.example.org:8443 https://httpbin.org/ip
+```
+
+- Format: `dn_proxy_` + 43 base64url characters (32 random bytes). Only its
+  SHA-256 hex is stored; the plaintext is returned once, by create.
+- Every token expires (`ttlSeconds` 60 .. 31536000, default 30 days).
+- Optional caps: `maxBytes` (gateway-metered bytes, 1 .. 10^15) and
+  `maxSpendMusd` (µUSD at the locked relay price, or the prepaid amount for
+  x402/MPP sessions; 1 .. 10^13). Usage is added when a relay session settles,
+  with a conditional `UPDATE ... WHERE used + delta <= cap`; a session that
+  would cross a cap saturates the counter at the cap. The cap is checked when a
+  request authenticates, so the session in flight when the cap is crossed
+  finishes and **the next request is refused** (407). Concurrent sessions
+  started before the cap was reached can each finish, so a cap can be exceeded
+  by at most the traffic of sessions already running.
+- Revocation and expiry take effect within 5 seconds (gateway lookup cache)
+  for new requests; a CONNECT tunnel already open runs until it closes.
+- The owner must stay active and verified. Admin suspension refuses every
+  token and also revokes them, so lifting the suspension does not revive them.
+- At most 25 active (unrevoked, unexpired) tokens per account.
+- Legacy stateless `dn_proxy_<payload>.<hmac>` session tokens from
+  `POST /api/auth/wallet/proxy-session` (they contain a `.`) keep working until
+  they expire (at most 24 h) and cannot be revoked individually.
+
+### `POST /v1/proxy-tokens`
+
+Verified principal required (403 `EMAIL_NOT_VERIFIED`). 20 per hour per user.
+
+```json
+{ "label": "scraper-ci", "ttlSeconds": 86400, "maxBytes": "5000000000", "maxSpendMusd": "2000000" }
+```
+
+All fields optional; integers as JSON numbers or digit strings. `label` is at
+most 64 printable characters. 201 response (`Cache-Control: no-store`):
+
+```json
+{ "id": "<uuid>", "label": "scraper-ci", "status": "active", "expiresAt": "...",
+  "maxBytes": "5000000000", "maxSpendMusd": "2000000", "bytesUsed": "0", "spendUsedMusd": "0",
+  "revokedAt": null, "createdAt": "...", "token": "dn_proxy_..." }
+```
+
+409 `PROXY_TOKEN_LIMIT` at 25 active tokens; 400 on invalid fields.
+
+### `GET /v1/proxy-tokens`
+
+120 per minute. `{ "tokens": [<token without "token">...], "maxActive": 25 }`,
+newest first (at most 100). `status` is `active`, `revoked`, `expired` or
+`exhausted` (a cap reached). Counters are integer strings.
+
+### `DELETE /v1/proxy-tokens/:id`
+
+60 per hour. `{ "id": "<uuid>", "revoked": true }`; 404 when the token is not
+yours or is already revoked. The gateway refuses it within 5 seconds.
 
 ## Public policy and pricing
 

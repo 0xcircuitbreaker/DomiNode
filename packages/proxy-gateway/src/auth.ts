@@ -1,5 +1,5 @@
 import * as http from "node:http";
-import { verifyProxySessionToken, userRepo, createLogger } from "@dominusnode/shared";
+import { verifyProxySessionToken, userRepo, proxyTokenRepo, createLogger } from "@dominusnode/shared";
 import type { User, ExitClass } from "@dominusnode/shared";
 
 const log = createLogger("proxy:auth");
@@ -30,6 +30,113 @@ export interface AuthResult {
   user: User;
   proxyOptions: ProxyOptions;
   teamId: string | null;
+  /** Opaque dn_proxy_ token id when the request used one; its caps apply. */
+  proxyTokenId?: string | null;
+}
+
+// ─── Opaque dn_proxy_ tokens (proxy_tokens table) ─────────────────────
+// Looked up by SHA-256 hash with a short positive cache, so revocation
+// (and expiry) takes effect within PROXY_TOKEN_CACHE_TTL_MS.
+export const PROXY_TOKEN_CACHE_TTL_MS = 5_000;
+const PROXY_TOKEN_CACHE_MAX = 10_000;
+interface CachedToken { tokenId: string; userId: string; expiresAt: number; fetchedAt: number }
+const tokenCache = new Map<string, CachedToken>();
+
+export function clearProxyTokenCache(): void { tokenCache.clear(); }
+
+async function lookupProxyToken(hash: string): Promise<CachedToken | null> {
+  const now = Date.now();
+  const hit = tokenCache.get(hash);
+  if (hit && now - hit.fetchedAt < PROXY_TOKEN_CACHE_TTL_MS && hit.expiresAt > now) return hit;
+  tokenCache.delete(hash);
+  const t = await proxyTokenRepo.findUsableByHash(hash);
+  if (!t) return null;
+  if (tokenCache.size >= PROXY_TOKEN_CACHE_MAX) {
+    for (const [k, v] of tokenCache) if (now - v.fetchedAt >= PROXY_TOKEN_CACHE_TTL_MS) tokenCache.delete(k);
+    while (tokenCache.size >= PROXY_TOKEN_CACHE_MAX) {
+      const oldest = tokenCache.keys().next().value;
+      if (oldest === undefined) break;
+      tokenCache.delete(oldest);
+    }
+  }
+  const entry = { tokenId: t.id, userId: t.userId, expiresAt: t.expiresAt.getTime(), fetchedAt: now };
+  tokenCache.set(hash, entry);
+  return entry;
+}
+
+/**
+ * Count settled, gateway-metered usage against a token's caps. When a cap is
+ * reached the cached entry is dropped so the next request re-reads the row and
+ * is refused. Never throws.
+ */
+export async function recordProxyTokenUsage(tokenId: string, bytes: bigint, spendMusd: bigint): Promise<void> {
+  try {
+    const r = await proxyTokenRepo.recordUsage(tokenId, bytes, spendMusd);
+    if (!r.withinCaps || r.exhausted) {
+      for (const [k, v] of tokenCache) if (v.tokenId === tokenId) tokenCache.delete(k);
+      log.info("proxy token cap reached", { tokenId });
+    }
+  } catch (err) {
+    log.error("proxy token usage update failed", { tokenId, error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
+  }
+}
+
+export interface VerifiedCredential { user: User; teamId: string | null; proxyTokenId: string | null }
+
+/**
+ * Verify a proxy password: dn_live_ API key, opaque dn_proxy_ token, or a
+ * legacy HMAC dn_proxy_ session token (accepted until it expires). Requires an
+ * active, verified owner. Shared by the HTTP proxy and SOCKS5.
+ */
+export async function verifyProxyCredential(credential: string): Promise<VerifiedCredential | null> {
+  if (credential.startsWith("dn_proxy_")) {
+    if (proxyTokenRepo.OPAQUE_PROXY_TOKEN_RE.test(credential)) {
+      const t = await lookupProxyToken(proxyTokenRepo.hashProxyToken(credential));
+      if (!t) {
+        log.warn("invalid, revoked, expired or exhausted proxy token");
+        return null;
+      }
+      const user = await userRepo.findUserById(t.userId);
+      if (!user || user.status !== "active" || !user.email_verified) {
+        log.warn("rejected proxy token owner", { userId: t.userId });
+        return null;
+      }
+      return { user, teamId: null, proxyTokenId: t.tokenId };
+    }
+    // Legacy stateless HMAC token (wallet-auth proxy session), until it expires.
+    const session = verifyProxySessionToken(credential);
+    if (!session) {
+      log.warn("invalid proxy session token");
+      return null;
+    }
+    const user = await userRepo.findUserById(session.userId);
+    if (!user || user.status !== "active" || !user.email_verified) {
+      log.warn("rejected proxy session user", { userId: session.userId });
+      return null;
+    }
+    // Wallet still linked (case-insensitive)
+    if (!user.wallet_address || user.wallet_address.toLowerCase() !== session.walletAddress.toLowerCase()) {
+      log.warn("wallet address mismatch", { userId: user.id });
+      return null;
+    }
+    return { user, teamId: null, proxyTokenId: null };
+  }
+
+  if (!credential.startsWith("dn_live_")) return null;
+  const result = await userRepo.findUserByApiKey(credential);
+  if (!result) {
+    log.warn("invalid API key", { prefix: credential.slice(0, 8) });
+    return null;
+  }
+  if (result.user.status !== "active") {
+    log.warn("rejected non-active user", { userId: result.user.id, status: result.user.status });
+    return null;
+  }
+  if (!result.user.email_verified) {
+    log.warn("rejected unverified email", { userId: result.user.id });
+    return null;
+  }
+  return { user: result.user, teamId: result.apiKey.team_id ?? null, proxyTokenId: null };
 }
 
 /**
@@ -144,76 +251,11 @@ export async function authenticateRequest(
   const username = decoded.slice(0, colonIdx);
   const credential = decoded.slice(colonIdx + 1);
 
-  // ─── Path A: Wallet proxy session token (HMAC, ~3-5μs) ────────────
-  if (credential.startsWith("dn_proxy_")) {
-    const session = verifyProxySessionToken(credential);
-    if (!session) {
-      log.warn("invalid proxy session token");
-      return null;
-    }
-
-    try {
-      // Look up user by ID (from the HMAC-verified payload)
-      const user = await userRepo.findUserById(session.userId);
-      if (!user) {
-        log.warn("proxy session user not found", { userId: session.userId });
-        return null;
-      }
-
-      // Reject suspended/deleted users
-      if (user.status !== "active") {
-        log.warn("rejected non-active user (session)", { userId: user.id, status: user.status });
-        return null;
-      }
-
-      // Reject users who haven't verified their email
-      if (!user.email_verified) {
-        log.warn("rejected unverified email (session)", { userId: user.id });
-        return null;
-      }
-
-      // Verify wallet address still matches (user hasn't unlinked wallet)
-      // Case-insensitive comparison for defense-in-depth
-      if (!user.wallet_address || user.wallet_address.toLowerCase() !== session.walletAddress.toLowerCase()) {
-        log.warn("wallet address mismatch", { userId: user.id });
-        return null;
-      }
-
-      const proxyOptions = parseProxyOptions(username);
-      return { userId: user.id, user, proxyOptions, teamId: null };
-    } catch (err) {
-      log.error("session auth DB error", { error: err instanceof Error ? err.message : String(err) });
-      return null;
-    }
-  }
-
-  // ─── Path B: API key (HMAC-SHA256 v2 / SHA-256 v1 lookup) ─────────────
-  if (!credential.startsWith("dn_live_")) return null;
-
-
   try {
-    const result = await userRepo.findUserByApiKey(credential);
-    if (!result) {
-      // Only log static prefix — don't leak key material
-      log.warn("invalid API key", { prefix: credential.slice(0, 8) });
-      return null;
-    }
-
-    // Reject suspended/deleted users at proxy auth layer
-    if (result.user.status !== "active") {
-      log.warn("rejected non-active user", { userId: result.user.id, status: result.user.status });
-      return null;
-    }
-
-    // Reject users who haven't verified their email (wallet-auth users are pre-verified)
-    if (!result.user.email_verified) {
-      log.warn("rejected unverified email", { userId: result.user.id });
-      return null;
-    }
-
+    const v = await verifyProxyCredential(credential);
+    if (!v) return null;
     const proxyOptions = parseProxyOptions(username);
-
-    return { userId: result.user.id, user: result.user, proxyOptions, teamId: result.apiKey.team_id ?? null };
+    return { userId: v.user.id, user: v.user, proxyOptions, teamId: v.teamId, proxyTokenId: v.proxyTokenId };
   } catch (err) {
     log.error("auth DB error", { error: err instanceof Error ? err.message : String(err) });
     return null;
