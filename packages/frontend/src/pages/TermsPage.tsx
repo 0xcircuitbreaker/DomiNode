@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { LegalFooterLinks } from "./FaqPage";
 
 export default function TermsPage() {
   return (
@@ -106,6 +107,7 @@ export default function TermsPage() {
             <p>For questions about these terms: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
           </section>
         </div>
+        <LegalFooterLinks />
       </main>
     </div>
   );

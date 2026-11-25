@@ -34,6 +34,13 @@ beforeEach(() => {
 });
 
 describe("agent discovery documents", () => {
+  it("points security contacts at the SECURITY.md disclosure policy", async () => {
+    const { buildAgentToolDocument, discoveryEnv, SECURITY_POLICY_URL } = await import("./discovery.js");
+    const doc = buildAgentToolDocument(discoveryEnv({} as NodeJS.ProcessEnv), { prices: [], tiers: [], maturationHours: 168 }) as { contact: Record<string, string> };
+    expect(SECURITY_POLICY_URL).toMatch(/\/SECURITY\.md$/);
+    expect(doc.contact["securityPolicy"]).toBe(SECURITY_POLICY_URL);
+    expect(doc.contact["security"]).toMatch(/\/\.well-known\/security\.txt$/);
+  });
   it("describes the network honestly and leads with the TLS proxy when configured", async () => {
     const { buildLlmsTxt, buildAgentToolDocument, discoveryEnv } = await import("./discovery.js");
     const pricing = { prices: [{ ipClass: "dc", pricePerGbMusd: 200000n }], tiers: [], maturationHours: 168 };

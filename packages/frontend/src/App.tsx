@@ -7,6 +7,7 @@ import VerifyEmailPage from "./pages/VerifyEmailPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import AUPPage from "./pages/AUPPage";
+import FaqPage from "./pages/FaqPage";
 import AdminLayout from "./admin/AdminLayout";
 import LandingPage from "./pages/LandingPage";
 import AbuseReportPage from "./pages/AbuseReportPage";
@@ -54,6 +55,7 @@ export default function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/aup" element={<AUPPage />} />
+      <Route path="/faq" element={<FaqPage />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={page(<OverviewPage />)} />
         <Route path="revenue" element={page(<RevenuePage />)} />

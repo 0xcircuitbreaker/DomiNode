@@ -187,9 +187,12 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
       ],
     },
 
-    contact: { security: `${b}/.well-known/security.txt` },
+    contact: { security: `${b}/.well-known/security.txt`, securityPolicy: SECURITY_POLICY_URL },
   };
 }
+
+/** Responsible-disclosure policy (repo SECURITY.md); referenced by security.txt and the discovery doc. */
+export const SECURITY_POLICY_URL = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/SECURITY.md";
 
 /** Plain-text summary for LLM crawlers (llms.txt convention). */
 export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {
