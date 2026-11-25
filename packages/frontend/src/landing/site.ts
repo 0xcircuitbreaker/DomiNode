@@ -38,4 +38,4 @@ export function contactEmail(raw: string | undefined): string {
   return /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,63}$/.test(v) ? v : "contact@example.org";
 }
 export const CONTACT_EMAIL = contactEmail(env["VITE_CONTACT_EMAIL"]);
-export const NODE_IMAGE = "ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.1";
+export const NODE_IMAGE = "ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.2";

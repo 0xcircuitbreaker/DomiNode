@@ -83,7 +83,7 @@ Other coordinators can adopt the same floor by importing the body. Users can dif
 
 ## F8: branding for forks
 
-`SITE_NAME`, `OPERATOR_NAME`, `OPERATOR_CONTACT` and `ABUSE_CONTACT` are config. The official DDG site name and operator name appear only when the coordinator's public key is listed in `OFFICIAL_COORD_PUBKEYS`. On any other key, the defaults are neutral, and a configured name that claims the DDG operator is replaced. There is no built-in contact on any key: the contact is `OPERATOR_CONTACT`, and `/.well-known/security.txt` uses it and returns 404 when none is configured.
+`SITE_NAME`, `OPERATOR_NAME`, `OPERATOR_CONTACT` and `ABUSE_CONTACT` are config. The official DDG site name and operator name appear only when the coordinator's public key is listed in `OFFICIAL_COORD_PUBKEYS` (unset, the default, gives the neutral `DominusNode-compatible relay`). A split deployment lists every official signing key there, the coordinator key and the gateway VPS key, on both boxes, since each box brands by its own signer. On any other key, the defaults are neutral, and a configured name that claims the DDG operator is replaced. There is no built-in contact on any key: the contact is `OPERATOR_CONTACT`, and `/.well-known/security.txt` uses it and returns 404 when none is configured.
 
 ## Roadmap
 

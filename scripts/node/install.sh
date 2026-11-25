@@ -16,7 +16,7 @@
 #   DN_API_KEY           first registration only: owner dn_live_ key (passed to the container by name)
 #   DN_WALLET_KEY_FILE   first registration only: owner wallet key file (copied 0600, deleted afterwards)
 #   DN_INSTALL_MODE      docker (default) | systemd
-#   DN_NODE_IMAGE        image (default ghcr.io/0xcircuitbreaker/dominusnode-node:latest)
+#   DN_NODE_IMAGE        image (default ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.2)
 #   DN_NODE_API_URL / DN_NODE_GATEWAY_URL   only to point at another coordinator (https:// / wss://)
 #   DN_NODE_GB_PER_DAY / DN_NODE_MAX_STREAMS / DN_NODE_MAX_MBPS / DN_NODE_REQ_PER_SEC   caps
 #   DN_SKIP_SELFCHECK=1  start even if selfcheck fails (not recommended)
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 MODE="${DN_INSTALL_MODE:-docker}"
-IMAGE="${DN_NODE_IMAGE:-ghcr.io/0xcircuitbreaker/dominusnode-node:latest}"
+IMAGE="${DN_NODE_IMAGE:-ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.2}"
 ETC="/etc/dominusnode"
 KEY_FILE="$ETC/node.json"
 ENV_FILE="$ETC/node.env"

@@ -47,7 +47,7 @@ export default function LandingPage() {
             <p>Sign in with a wallet signature, get a <Code>dn_live_</Code> API key, and top up with crypto (Tempo or NOWPayments). Usage is billed per GB at the live price for the exit's IP class.</p>
           </Card>
           <Card title="Three ways in">
-            <p>The <strong>MCP server</strong> for Claude, Cursor and other MCP clients; <strong>six SDKs</strong> (Node, Python, Go, Rust, Java, C++); or the raw <strong>proxy</strong>: TLS (HTTPS) proxy <Code>:8443</Code>; plaintext <Code>:8080</Code>/<Code>:1080</Code> only on a local gateway.</p>
+            <p>The <strong>MCP server</strong> for Claude, Cursor and other MCP clients; <strong>six SDKs</strong> (Node, Python, Go, Rust, Java, C++); or the raw <strong>proxy</strong>: TLS (HTTPS) proxy <Code>proxy.dominusnode.com:8443</Code>, SOCKS5 over TLS <Code>:1443</Code>; node agents tunnel to <Code>relay.dominusnode.com:9443</Code>; plaintext <Code>:8080</Code>/<Code>:1080</Code> only on a local gateway.</p>
           </Card>
         </div>
         <div className="mt-6 border border-white/10 p-5 text-sm">
