@@ -91,7 +91,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   if (cmd === "selfcheck") {
-    return await selfcheckCommand(cfg, flags);
+    return await selfcheckCommand(cfg, flags, undefined, {}, resolveRunCoordPins(cfg).length);
   }
 
   if (cmd === "register") {

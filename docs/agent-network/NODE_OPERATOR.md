@@ -19,7 +19,7 @@ The installer:
 4. runs `selfcheck` and stops if any check fails,
 5. starts the agent under Docker's restart policy (`DN_INSTALL_MODE=docker`, the default) or under a systemd unit that supervises the container (`DN_INSTALL_MODE=systemd`).
 
-Re-run the installer to upgrade. Registration is skipped once the key file exists. Caps default to the home-broadband row in DEPLOYMENT.md. You can override them with `DN_NODE_GB_PER_DAY`, `DN_NODE_MAX_STREAMS`, `DN_NODE_MAX_MBPS` and `DN_NODE_REQ_PER_SEC`. To point the node at another coordinator, set `DN_NODE_API_URL=https://api.example.org` and `DN_NODE_GATEWAY_URL=wss://gw.example.org/v1/tunnel`. A native install without Docker (built from source, with a hardened systemd unit) is in `scripts/seed/deploy-node.sh` (see DEPLOYMENT.md).
+Re-run the installer to upgrade. Registration is skipped once the key file exists, and caps or URLs you do not set again keep the values from the last run. Switching `DN_INSTALL_MODE` from systemd to docker removes the old unit. Caps default to the home-broadband row in DEPLOYMENT.md. You can override them with `DN_NODE_GB_PER_DAY`, `DN_NODE_MAX_STREAMS`, `DN_NODE_MAX_MBPS` and `DN_NODE_REQ_PER_SEC`. To point the node at another coordinator, set `DN_NODE_API_URL=https://api.example.org` and `DN_NODE_GATEWAY_URL=wss://gw.example.org/v1/tunnel`. A native install without Docker (built from source, with a hardened systemd unit) is in `scripts/seed/deploy-node.sh` (see DEPLOYMENT.md).
 
 ## 2. Self-check
 
@@ -32,9 +32,10 @@ docker run --rm --env-file /etc/dominusnode/node.env \
 | Check | Passes when | Typical fix |
 |---|---|---|
 | node key | the key file exists, has mode 0600 and holds a `dn_node_` key | `chmod 600`, or register again |
-| gateway TLS | a TLS handshake to the gateway succeeds and the certificate is verified | allow outbound 443, fix DNS, remove any TLS-intercepting proxy |
+| gateway TLS | a TLS handshake to the gateway's URL port succeeds, the certificate is verified and, when `DN_NODE_SPKI_PINS` is set, the SPKI pin matches (same rule as `run`) | allow outbound TCP to that port (443, or 9443 for a direct tunnel port), fix DNS or the pin, remove any TLS-intercepting proxy |
 | clock skew | the clock is within 30 s of the API `Date` header (a warning appears above 15 s) | enable NTP (`timedatectl set-ntp true`) |
 | outbound dial | the floor-checked dialer reaches `example.com:443` (change it with `--dial-target`) | open outbound TCP 80/443 |
+| coordinator pins | `run` has at least one coordinator pin (the published image embeds the official ones) | use the published image, or set `DN_NODE_COORD_PINS` / `--coordinator` with `--trust` |
 
 Each line prints `PASS`, `WARN` or `FAIL`, and every non-pass line has a `fix:` hint. The command exits 1 if any check fails, so you can use it in health checks. Key material is never printed.
 

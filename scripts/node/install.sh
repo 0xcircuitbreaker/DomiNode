@@ -8,7 +8,8 @@
 # exists), runs `selfcheck`, and starts the agent under Docker's restart policy
 # (DN_INSTALL_MODE=docker, default) or a systemd unit that supervises the
 # container (DN_INSTALL_MODE=systemd). Re-running it upgrades the image and
-# restarts the node; registration is skipped once the key file exists.
+# restarts the node; registration is skipped once the key file exists, and caps
+# or URLs not set in the environment keep the values the last run wrote.
 #
 # Configuration comes from the environment only; secrets are never accepted as
 # arguments and are never written to the unit or env file:
@@ -43,6 +44,12 @@ case "$MODE" in docker|systemd) ;; *) die "DN_INSTALL_MODE must be docker or sys
 command -v docker >/dev/null 2>&1 || die "docker is required (https://docs.docker.com/engine/install/)"
 if [ "$MODE" = systemd ]; then command -v systemctl >/dev/null 2>&1 || die "systemctl not found; use DN_INSTALL_MODE=docker"; fi
 [[ "$IMAGE" =~ ^[a-z0-9./:@_-]+$ ]] || die "DN_NODE_IMAGE has unexpected characters"
+
+# Value a previous install wrote, so a plain re-run (upgrade) keeps the operator's caps and URLs.
+prev() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=\([A-Za-z0-9.:\/_-]*\)\$/\1/p" "$ENV_FILE" | tail -n 1; return 0; }
+for v in DN_NODE_GB_PER_DAY DN_NODE_MAX_STREAMS DN_NODE_MAX_MBPS DN_NODE_REQ_PER_SEC DN_NODE_API_URL DN_NODE_GATEWAY_URL; do
+  [ -n "${!v:-}" ] || printf -v "$v" '%s' "$(prev "$v")"
+done
 
 for v in DN_NODE_API_URL DN_NODE_GATEWAY_URL; do
   val="${!v:-}"
@@ -95,6 +102,12 @@ fi
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 if [ "$MODE" = docker ]; then
+  # Switching from systemd mode: the old unit would keep recreating the container.
+  if [ -f "$UNIT" ]; then
+    systemctl disable --now "$NAME.service" >/dev/null 2>&1 || true
+    rm -f "$UNIT"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
   docker run -d --name "$NAME" --restart unless-stopped --env-file "$ENV_FILE" \
     -v "$KEY_FILE:/run/dominusnode/node.json:ro" "$IMAGE" run >/dev/null
   log "started container $NAME (docker logs -f $NAME)"

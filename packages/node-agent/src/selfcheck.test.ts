@@ -7,6 +7,8 @@ import {
   checkGatewayTls,
   checkKeyFormat,
   checkOutboundDial,
+  coordPinsCheck,
+  pinnedIdentity,
   exitCodeFor,
   formatResults,
   MAX_CLOCK_SKEW_MS,
@@ -70,6 +72,40 @@ describe("checkGatewayTls", () => {
     expect(r).toMatchObject({ status: "fail" });
     expect(r.detail).toContain(":8443");
     expect(r.remediation).toBeTruthy();
+  });
+});
+
+describe("gateway SPKI pins", () => {
+  const PIN = "sha256:" + "A".repeat(43) + "=";
+  it("passes the configured pins to the probe and reports the match", async () => {
+    let got: readonly string[] = [];
+    const r = await checkGatewayTls("wss://gw.example.org:9443/v1/tunnel", async (_h, _p, _t, pins) => {
+      got = pins;
+      return "TLSv1.3";
+    }, [PIN]);
+    expect(got).toEqual([PIN]);
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("SPKI pin matched");
+  });
+  it("names the URL's own port in the remediation", async () => {
+    const r = await checkGatewayTls("wss://gw.example.org:9443/t", async () => {
+      throw new Error("SPKI pin mismatch");
+    });
+    expect(r.remediation).toContain("TCP 9443");
+  });
+  it("pinnedIdentity: hostname check first, then the pin", () => {
+    const cert = { subject: { CN: "gw.example.org" }, subjectaltname: "DNS:gw.example.org", raw: Buffer.from("not a cert") } as unknown as import("node:tls").PeerCertificate;
+    expect(pinnedIdentity([])("gw.example.org", cert)).toBeUndefined();
+    expect(pinnedIdentity([])("evil.example.org", cert)).toBeInstanceOf(Error);
+    expect(pinnedIdentity([PIN])("gw.example.org", cert)?.message).toBe("SPKI pin mismatch");
+  });
+});
+
+describe("coordinator pins", () => {
+  it("fails with no pins (run would exit) and passes with some", () => {
+    expect(coordPinsCheck(0).status).toBe("fail");
+    expect(coordPinsCheck(0).remediation).toMatch(/DN_NODE_COORD_PINS/);
+    expect(coordPinsCheck(2).status).toBe("pass");
   });
 });
 
@@ -140,5 +176,9 @@ describe("runSelfcheck / output", () => {
     out = "";
     expect(await selfcheckCommand(cfg, {}, (s) => { out += s; }, ok)).toBe(0);
     expect(out).toContain("[PASS] node key");
+    expect(out).not.toContain("coordinator pins");
+    out = "";
+    expect(await selfcheckCommand(cfg, {}, (s) => { out += s; }, ok, 0)).toBe(1);
+    expect(out).toContain("[FAIL] coordinator pins");
   });
 });

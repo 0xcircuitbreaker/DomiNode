@@ -9,13 +9,15 @@
  *   3. clock skew against the API's Date header (channel binding and
  *      signed challenges have short validity windows)
  *   4. outbound dial: the floor-checked dialer can reach a public host:443
+ *   5. coordinator pins: `run` refuses to start without at least one
+ *      (checked only when the caller passes the resolved pin count)
  *
  * Secrets are never printed: key material is only tested, not echoed.
  */
 import * as tls from "node:tls";
 import { dial } from "./dialer.js";
 import { NODE_KEY_RE, readNodeFile } from "./register.js";
-import { scrub } from "./tunnel-client.js";
+import { scrub, spkiFingerprint } from "./tunnel-client.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -34,7 +36,7 @@ const TIMEOUT_MS = 10_000;
 export interface SelfcheckDeps {
   readNodeFile?: (file: string) => { nodeKey: string; nodeId: string };
   /** Opens a verified TLS connection; resolves the negotiated protocol or rejects. */
-  tlsProbe?: (host: string, port: number, timeoutMs: number) => Promise<string>;
+  tlsProbe?: (host: string, port: number, timeoutMs: number, spkiPins: readonly string[]) => Promise<string>;
   /** Returns the server's Date header (ms since epoch) for the URL, or null. */
   serverTime?: (url: string, timeoutMs: number) => Promise<number | null>;
   now?: () => number;
@@ -48,6 +50,10 @@ export interface SelfcheckOptions {
   apiUrl: string;
   dialTarget?: string;
   denyDomains?: readonly string[];
+  /** DN_NODE_SPKI_PINS: when set, the probe enforces them exactly as `run` does. */
+  spkiPins?: readonly string[];
+  /** Coordinator pins `run` would use; 0 means `run` exits immediately. */
+  coordPinCount?: number;
 }
 
 const errMsg = (e: unknown): string => scrub(e instanceof Error ? e.message : String(e)).slice(0, 200);
@@ -76,7 +82,11 @@ export function checkKeyFormat(keyFile: string, read: NonNullable<SelfcheckDeps[
   }
 }
 
-export async function checkGatewayTls(gatewayUrl: string, probe: NonNullable<SelfcheckDeps["tlsProbe"]>): Promise<CheckResult> {
+export async function checkGatewayTls(
+  gatewayUrl: string,
+  probe: NonNullable<SelfcheckDeps["tlsProbe"]>,
+  spkiPins: readonly string[] = [],
+): Promise<CheckResult> {
   const name = "gateway TLS";
   let u: URL;
   try {
@@ -89,14 +99,15 @@ export async function checkGatewayTls(gatewayUrl: string, probe: NonNullable<Sel
   }
   const port = u.port ? Number(u.port) : 443;
   try {
-    const proto = await probe(u.hostname, port, TIMEOUT_MS);
-    return { name, status: "pass", detail: `${u.hostname}:${port} reachable, certificate verified (${proto})` };
+    const proto = await probe(u.hostname, port, TIMEOUT_MS, spkiPins);
+    const pinned = spkiPins.length > 0 ? ", SPKI pin matched" : "";
+    return { name, status: "pass", detail: `${u.hostname}:${port} reachable, certificate verified${pinned} (${proto})` };
   } catch (e) {
     return {
       name,
       status: "fail",
       detail: `${u.hostname}:${port}: ${errMsg(e)}`,
-      remediation: "Allow outbound TCP 443 to the gateway, check DNS, and check that no TLS-intercepting proxy sits in the path.",
+      remediation: `Allow outbound TCP ${port} to the gateway, check DNS, check DN_NODE_SPKI_PINS if set, and check that no TLS-intercepting proxy sits in the path.`,
     };
   }
 }
@@ -139,9 +150,38 @@ export async function checkOutboundDial(target: string, outbound: NonNullable<Se
   }
 }
 
-const defaultTlsProbe: NonNullable<SelfcheckDeps["tlsProbe"]> = (host, port, timeoutMs) =>
+export function coordPinsCheck(count: number): CheckResult {
+  const name = "coordinator pins";
+  if (count > 0) return { name, status: "pass", detail: `${count} coordinator pin(s) configured` };
+  return {
+    name,
+    status: "fail",
+    detail: "no coordinator pins; `run` will refuse to start",
+    remediation: "Use the published image (it embeds the official pins) or set DN_NODE_COORD_PINS / --coordinator with --trust.",
+  };
+}
+
+/** Same server-identity rule the tunnel uses: hostname + CA, then the SPKI pin when pins are set. */
+export function pinnedIdentity(spkiPins: readonly string[]) {
+  return (host: string, cert: tls.PeerCertificate): Error | undefined => {
+    const base = tls.checkServerIdentity(host, cert);
+    if (base) return base;
+    if (spkiPins.length === 0) return undefined;
+    const fp = spkiFingerprint(cert);
+    return fp && spkiPins.includes(fp) ? undefined : new Error("SPKI pin mismatch");
+  };
+}
+
+const defaultTlsProbe: NonNullable<SelfcheckDeps["tlsProbe"]> = (host, port, timeoutMs, spkiPins) =>
   new Promise((resolve, reject) => {
-    const sock = tls.connect({ host, port, servername: host, rejectUnauthorized: true, ALPNProtocols: ["http/1.1"] });
+    const sock = tls.connect({
+      host,
+      port,
+      servername: host,
+      rejectUnauthorized: true,
+      ALPNProtocols: ["http/1.1"],
+      checkServerIdentity: pinnedIdentity(spkiPins),
+    });
     const timer = setTimeout(() => {
       sock.destroy();
       reject(new Error("timed out"));
@@ -178,11 +218,13 @@ export async function runSelfcheck(opts: SelfcheckOptions, deps: SelfcheckDeps =
     });
   const key = checkKeyFormat(opts.keyFile, deps.readNodeFile ?? readNodeFile);
   const [gw, clock, out] = await Promise.all([
-    checkGatewayTls(opts.gatewayUrl, deps.tlsProbe ?? defaultTlsProbe),
+    checkGatewayTls(opts.gatewayUrl, deps.tlsProbe ?? defaultTlsProbe, opts.spkiPins ?? []),
     checkClockSkew(opts.apiUrl, deps.serverTime ?? defaultServerTime, deps.now ?? Date.now),
     checkOutboundDial(opts.dialTarget ?? DEFAULT_DIAL_TARGET, outbound),
   ]);
-  return [key, gw, clock, out];
+  const results = [key, gw, clock, out];
+  if (opts.coordPinCount !== undefined) results.push(coordPinsCheck(opts.coordPinCount));
+  return results;
 }
 
 export function formatResults(results: readonly CheckResult[]): string {
