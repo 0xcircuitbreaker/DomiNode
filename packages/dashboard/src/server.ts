@@ -317,8 +317,8 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     }
   });
 
-  // Health check
-  app.get("/api/health", async (_req, res) => {
+  // Health check (/health is an alias for probes and tunnels that expect it)
+  app.get(["/api/health", "/health"], async (_req, res) => {
     try {
       await query("SELECT 1");
       res.json({ status: "ok", service: "dominusnode-api", db: "connected" });

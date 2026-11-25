@@ -28,9 +28,12 @@ RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && \
 # Copy built assets
 COPY --from=builder --chown=nginx:nginx /app/packages/frontend/dist /usr/share/nginx/html
 
-# Copy nginx config
+# Copy nginx config. It goes in as a template: the image's entrypoint renders
+# it into conf.d with envsubst, replacing only ${VAR}s set in the environment
+# (selfhost.conf uses ${DN_PUBLIC_SITE}; default.conf has none and is unchanged).
 ARG NGINX_CONF=infra/nginx/default.conf
-COPY --chown=nginx:nginx ${NGINX_CONF} /etc/nginx/conf.d/default.conf
+RUN mkdir -p /etc/nginx/templates && rm -f /etc/nginx/conf.d/default.conf
+COPY --chown=nginx:nginx ${NGINX_CONF} /etc/nginx/templates/default.conf.template
 
 USER nginx
 

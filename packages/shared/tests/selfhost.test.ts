@@ -424,6 +424,12 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       expect(env.match(/^ROLE=/gm)).toHaveLength(1);
       expect(fs.statSync(path.join(tmp, ".env")).mode & 0o077).toBe(0);
       expect(fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8")).not.toContain("reverse_proxy");
+      // The installer names the one tunnel target: the frontend site router.
+      const r = run(tmp, { ...coordEnv, PUBLIC_SITE: "1" });
+      expect(r.stdout).toMatch(/tunnel target: .*example\.org www\.example\.org api\.example\.org/);
+      expect(r.stdout).toMatch(/URL frontend:8080/);
+      expect(fs.readFileSync(path.join(tmp, ".env"), "utf8")).toMatch(/^PUBLIC_SITE=1$/m);
+      expect(run(tmp, { ...coordEnv, PUBLIC_SITE: "yes" }).stderr).toMatch(/PUBLIC_SITE must be 0 or 1/);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -770,12 +776,11 @@ describe("self-host operations (admin, contacts, pepper, backups)", () => {
       expect(env).toMatch(/^ABUSE_CONTACT=abuse@example\.org$/m);
       const caddy = fs.readFileSync(path.join(tmp, "selfhost/Caddyfile"), "utf8");
       expect(caddy).toMatch(/handle @api \{\n\s+reverse_proxy api:3000/);
-      expect(caddy).toMatch(/handle @admin \{\n\s+reverse_proxy frontend:8080/);
-      // Only the admin UI reaches the frontend: no official public pages.
-      const admin = caddy.split("\n").find((l) => l.includes("@admin path"))!;
-      for (const p of ["/report-abuse", "/pricing", "/terms", "/privacy", "/aup", "/run-a-node"]) expect(admin).not.toContain(p);
-      expect(caddy).toMatch(/handle \/ \{\n\s+redir \/admin 302/);
-      expect(caddy).toMatch(/handle \{\n\s+respond 404/);
+      expect(caddy.split("\n").find((l) => l.includes("@api path"))).toContain(" /health");
+      // Everything else goes to the frontend nginx, which applies PUBLIC_SITE.
+      expect(caddy).toMatch(/handle \{\n\s+reverse_proxy frontend:8080/);
+      expect(caddy).not.toContain("respond 404\n");
+      expect(env).toMatch(/^PUBLIC_SITE=0$/m);
       // Re-run: pepper kept; an explicitly empty bootstrap email closes registration.
       expect(install(tmp, { ADMIN_BOOTSTRAP_EMAIL: "" }).status).toBe(0);
       expect(fs.readFileSync(path.join(tmp, "selfhost/api-key-pepper"), "utf8")).toBe(pep1);
@@ -1234,4 +1239,46 @@ describe("self-host beta fixes", () => {
       }
     });
   }
+});
+
+describe("self-host site router (infra/nginx/selfhost.conf)", () => {
+  const conf = fs.readFileSync(path.join(ROOT, "infra/nginx/selfhost.conf"), "utf8");
+  const block = (loc: string) => {
+    const i = conf.indexOf(`location ${loc} {`);
+    expect(i, loc).toBeGreaterThan(-1);
+    return conf.slice(i, conf.indexOf("\n    }", i));
+  };
+
+  it("sends every API path to the api with a single client address", () => {
+    for (const loc of ["^~ /api/auth/", "^~ /api/", "^~ /v1", "^~ /.well-known/", "^~ /status", "= /llms.txt", "= /health"]) {
+      const b = block(loc);
+      expect(b).toContain("proxy_pass http://api:3000;");
+      expect(b).toContain("proxy_set_header X-Forwarded-For $remote_addr;");
+      expect(b).not.toContain("$proxy_add_x_forwarded_for");
+    }
+    expect(conf).toMatch(/set_real_ip_from 172\.29\.53\.0\/24;/);
+    expect(conf).toMatch(/real_ip_header X-Forwarded-For;/);
+  });
+
+  it("serves the admin UI always and the public site only with DN_PUBLIC_SITE=1", () => {
+    expect(conf).toContain('set $dn_public_site "${DN_PUBLIC_SITE}";');
+    expect(block("^~ /admin")).toContain("try_files /index.html");
+    expect(block("= /")).toMatch(/if \(\$dn_public_site != "1"\) \{ return 302 \/admin; \}/);
+    expect(block("/")).toMatch(/if \(\$dn_public_site != "1"\) \{ return 404; \}/);
+    // The only envsubst variable: nginx's own $vars must stay unbraced.
+    expect(conf.match(/\$\{[A-Z_]+\}/g)).toEqual(["${DN_PUBLIC_SITE}"]);
+  });
+
+  it("the image renders the conf as a template and compose passes PUBLIC_SITE", () => {
+    const df = fs.readFileSync(path.join(ROOT, "infra/docker/frontend.Dockerfile"), "utf8");
+    expect(df).toContain("/etc/nginx/templates/default.conf.template");
+    expect(fs.readFileSync(path.join(ROOT, "infra/nginx/default.conf"), "utf8")).not.toMatch(/\$\{/);
+    const compose = fs.readFileSync(path.join(ROOT, "docker-compose.selfhost.yml"), "utf8");
+    expect(compose).toContain("DN_PUBLIC_SITE: ${PUBLIC_SITE:-0}");
+  });
+
+  it("the frontend build has the landing page route", () => {
+    const app = fs.readFileSync(path.join(ROOT, "packages/frontend/src/App.tsx"), "utf8");
+    expect(app).toMatch(/<Route path="\/" element=\{<LandingPage \/>\} \/>/);
+  });
 });

@@ -15,6 +15,8 @@
 #           off (plain HTTP on :80; terminate TLS in front of this box),
 #           cloudflare (site/API only through a Cloudflare Tunnel, no inbound
 #           ports for them; token in CLOUDFLARE_TUNNEL_TOKEN_FILE, mode 0600).
+# PUBLIC_SITE=1 serves the public site pages (landing etc.) besides the admin UI.
+# With TLS_MODE=cloudflare every tunnel hostname targets http://frontend:8080.
 # ACME_CHALLENGE: http (default; Let's Encrypt HTTP-01/TLS-ALPN-01, inbound 80/443)
 #           or dns-cloudflare (DNS-01 through the Cloudflare API, no inbound
 #           80/443; token in CLOUDFLARE_DNS_TOKEN_FILE, mode 0600, Zone:DNS:Edit
@@ -422,6 +424,12 @@ else
   for k in $TLS_KEYS; do env_unset "$k"; done
   env_set PROXY_REQUIRE_TLS true
 fi
+# Public site pages (landing, pricing, terms...) on the site hostnames. Off by
+# default: they carry the contact baked in at build time (OPERATOR_CONTACT)
+# and the stock terms; the admin UI and API are served either way.
+PSITE="${PUBLIC_SITE:-$(env_get PUBLIC_SITE)}"
+case "${PSITE:-0}" in 0|1) ;; *) die "PUBLIC_SITE must be 0 or 1" ;; esac
+env_set PUBLIC_SITE "${PSITE:-0}"
 # What the API lists in coordinator.json: plaintext only when published.
 env_set PLAINTEXT_PROXY_PUBLISHED "${PLAIN:-0}"
 CORS=""
@@ -484,21 +492,13 @@ tls_block() {
     echo "$SITES {"
     tls_block
     echo "  encode gzip"
-    echo "  @api path /api/* /v1/* /v1 /.well-known/* /status /status/* /llms.txt"
+    echo "  @api path /api/* /v1/* /v1 /.well-known/* /status /status/* /llms.txt /health"
     echo "  handle @api {"
     echo "    reverse_proxy api:3000"
     echo "  }"
-    echo "  # Admin UI only (nginx). The public DominusNode site pages are not served"
-    echo "  # on a self-host: they carry the official operator's contacts and terms."
-    echo "  @admin path /admin /admin/* /login /forgot-password /reset-password /verify-email /assets/* /favicon.ico /favicon-192.png /apple-touch-icon.png /icon-512.png /icon-mask.svg /icon-maskable-512.png /logo.svg /site.webmanifest"
-    echo "  handle @admin {"
-    echo "    reverse_proxy frontend:8080"
-    echo "  }"
-    echo "  handle / {"
-    echo "    redir /admin 302"
-    echo "  }"
+    echo "  # Everything else: frontend nginx (admin UI; public site with PUBLIC_SITE=1)."
     echo "  handle {"
-    echo "    respond 404"
+    echo "    reverse_proxy frontend:8080"
     echo "  }"
     echo "}"
   fi
@@ -558,6 +558,10 @@ for p in $PROFILES; do COMPOSE+=(--profile "$p"); done
 echo "config written: .env (0600), selfhost/Caddyfile, selfhost/coord-key.pem"
 echo "role: $ROLE_SEL; primary domain: $PRIMARY; all hostnames: $HOSTS; TLS: $TLS"
 echo "relay: $RELAY; proxy: $PROXYH; ACME challenge: $ACME; compose profiles: $PROFILES"
+if [ "$TLS" = cloudflare ] && [ "$ROLE_SEL" != gateway ]; then
+  echo "tunnel target: in the Cloudflare dashboard (Networks > Tunnels > your tunnel > Public hostnames) give each of $HOSTS"
+  echo "  one rule with no path: service HTTP, URL frontend:8080. Remove any rule pointing at api:3000 (it bypasses the site router)."
+fi
 echo "this box's signing public key (selfhost/coord.pub): $PUB; DN_COORD_PUBKEYS=$PINS"
 echo "API key pepper check value (must match on coordinator and gateway): $PEPPER_CHECK"
 if [ "$ROLE_SEL" = gateway ]; then
@@ -690,5 +694,9 @@ else
   if [ -n "$ADMIN_EMAIL" ]; then
     echo "first admin: register $ADMIN_EMAIL with bootstrapToken = ADMIN_BOOTSTRAP_TOKEN from .env (DEPLOYMENT.md 'Self-host admin'), then re-run with ADMIN_BOOTSTRAP_EMAIL= (empty) to close registration"
   fi
-  echo "up. admin UI: $SCHEME://$PRIMARY/  status page: $SCHEME://$PRIMARY/status"
+  if [ "${PSITE:-0}" = 1 ]; then
+    echo "up. site: $SCHEME://$PRIMARY/  admin UI: $SCHEME://$PRIMARY/admin  status page: $SCHEME://$PRIMARY/status"
+  else
+    echo "up. admin UI: $SCHEME://$PRIMARY/  status page: $SCHEME://$PRIMARY/status"
+  fi
 fi

@@ -226,9 +226,12 @@ services:
     read_only: true
     tmpfs: [/tmp]
 
-  # Admin UI (React build served by nginx; /api/* is proxied to api:3000).
-  # Caddy routes /api, /v1, /.well-known, /status and /llms.txt to the api,
-  # only the admin paths (/admin, /login, assets) here, and redirects / to /admin.
+  # Site router + admin UI (React build served by nginx, infra/nginx/selfhost.conf).
+  # API paths (/api, /v1, /.well-known, /status, /llms.txt, /health) go on to
+  # api:3000; /admin and the auth pages are the admin UI; the public site
+  # (landing, pricing, terms...) only with PUBLIC_SITE=1, else / -> /admin.
+  # Caddy sends API paths straight to the api and everything else here; the
+  # Cloudflare tunnel sends everything here.
   # Self-host nginx config: no HSTS includeSubDomains/preload, connect-src self.
   frontend:
     logging: *default-logging
@@ -236,6 +239,8 @@ services:
     build: { context: ., dockerfile: infra/docker/frontend.Dockerfile, args: { NGINX_CONF: infra/nginx/selfhost.conf, VITE_CONTACT_EMAIL: "${OPERATOR_CONTACT:-contact@example.org}" } }
     image: dominusnode-frontend:selfhost
     restart: unless-stopped
+    environment:
+      DN_PUBLIC_SITE: ${PUBLIC_SITE:-0}
     depends_on:
       api: { condition: service_started }
     networks: [frontend]
@@ -438,10 +443,10 @@ services:
         mv -f /dst/cloudflare-dns.token.tmp /dst/cloudflare-dns.token
         chown 0:0 /dst && chmod 0500 /dst
 
-  # Outbound-only Cloudflare Tunnel: no inbound ports. Public hostnames are
-  # mapped in the Cloudflare dashboard: /api, /v1 and the other API paths to
-  # http://api:3000 (keeps per-client IPs), admin paths to http://frontend:8080
-  # (DEPLOYMENT.md "Self-host admin").
+  # Outbound-only Cloudflare Tunnel: no inbound ports. Every public hostname
+  # is mapped in the Cloudflare dashboard to one service, http://frontend:8080:
+  # its nginx (infra/nginx/selfhost.conf) routes the API paths to api:3000 and
+  # serves the site and admin UI (DEPLOYMENT.md "Self-host admin").
   cloudflared:
     logging: *default-logging
     profiles: [cloudflare]
