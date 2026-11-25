@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `proxy_tokens.create/list/revoke` (sync and async): scoped, revocable `dn_proxy_` proxy tokens with expiry and byte/spend caps; the token is returned once in a `Secret`.
+
 ## [2.4.0] - 2026-11-14
 
 Additive release (SDK surface: 15 resources, 73 methods).

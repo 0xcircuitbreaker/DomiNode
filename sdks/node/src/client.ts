@@ -3,6 +3,7 @@ import { HttpClient } from "./http.js";
 import { AuthResource, validateApiKey } from "./resources/auth.js";
 import { WalletAuthResource } from "./resources/wallet-auth.js";
 import { KeysResource } from "./resources/keys.js";
+import { ProxyTokensResource } from "./resources/proxy-tokens.js";
 import { WalletResource } from "./resources/wallet.js";
 import { AgenticWalletResource } from "./resources/agent-wallet.js";
 import { TeamsResource } from "./resources/teams.js";
@@ -42,6 +43,7 @@ export class DominusNodeClient {
   public readonly payoutWallet: PayoutWalletResource;
   public readonly payouts: PayoutsResource;
   public readonly proxy: ProxyResource;
+  public readonly proxyTokens: ProxyTokensResource;
 
   readonly #tokens: TokenManager;
   #apiKey: string | null = null;
@@ -65,6 +67,7 @@ export class DominusNodeClient {
     this.payoutWallet = new PayoutWalletResource(http);
     this.payouts = new PayoutsResource(http);
     this.proxy = new ProxyResource(http, config, () => this.#apiKey);
+    this.proxyTokens = new ProxyTokensResource(http);
 
     // Set after auth exists. Never cleared (TokenManager.clear() keeps it).
     this.#tokens.setRefreshFunction(async (rt) => {

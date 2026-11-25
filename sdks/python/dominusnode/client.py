@@ -12,10 +12,10 @@ from .errors import DominusNodeError
 from .http_client import AsyncHttpClient, SyncHttpClient
 from .resources import (
     AgenticWalletResource, AsyncAgenticWalletResource, AsyncAuthResource, AsyncCreditsResource,
-    AsyncKeysResource, AsyncNetworkResource, AsyncNodesResource, AsyncPayoutsResource,
+    AsyncKeysResource, AsyncProxyTokensResource, AsyncNetworkResource, AsyncNodesResource, AsyncPayoutsResource,
     AsyncPayoutWalletResource, AsyncProxyResource, AsyncSessionsResource, AsyncTeamsResource,
     AsyncUsageResource, AsyncWalletAuthResource, AsyncWalletResource, AsyncX402Resource, AuthResource,
-    CreditsResource, KeysResource, NetworkResource, NodesResource, PayoutsResource, PayoutWalletResource,
+    CreditsResource, KeysResource, ProxyTokensResource, NetworkResource, NodesResource, PayoutsResource, PayoutWalletResource,
     ProxyResource, SessionsResource, TeamsResource, UsageResource, WalletAuthResource, WalletResource,
     X402Resource, _AuthResource, _Ctx,
 )
@@ -106,6 +106,7 @@ class DominusNodeClient(_ClientBase):
         self.payout_wallet = PayoutWalletResource(http, ctx)
         self.payouts = PayoutsResource(http, ctx)
         self.proxy = ProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port, gateway_tls)
+        self.proxy_tokens = ProxyTokensResource(http, ctx)
 
         def refresh(rt: str) -> Any:
             r = self.auth.refresh(rt)
@@ -166,6 +167,7 @@ class AsyncDominusNodeClient(_ClientBase):
         self.payout_wallet = AsyncPayoutWalletResource(http, ctx)
         self.payouts = AsyncPayoutsResource(http, ctx)
         self.proxy = AsyncProxyResource(http, ctx, proxy_host, http_proxy_port, socks5_proxy_port, gateway_tls)
+        self.proxy_tokens = AsyncProxyTokensResource(http, ctx)
 
         async def refresh(rt: str) -> Any:
             r = await self.auth.refresh(rt)

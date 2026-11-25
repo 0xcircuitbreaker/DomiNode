@@ -15,6 +15,7 @@ import { registerTeamsTools } from "./tools/teams.js";
 import { registerNetworkTools } from "./tools/network.js";
 import { registerNodeTools } from "./tools/nodes.js";
 import { registerCreditsTools } from "./tools/credits.js";
+import { registerProxyTokenTools } from "./tools/proxy-tokens.js";
 
 /** Tools available without an API key (account bootstrap + public network info). */
 export function registerBootstrapTools(server: McpServer, httpClient: HttpClient, config?: McpConfig): void {
@@ -47,6 +48,7 @@ export function registerAuthenticatedTools(server: McpServer, httpClient: HttpCl
   registerX402InfoTool(server, httpClient);
   registerNodeTools(server, httpClient, config);
   registerCreditsTools(server, httpClient, config);
+  registerProxyTokenTools(server, httpClient, config);
 }
 
 /**

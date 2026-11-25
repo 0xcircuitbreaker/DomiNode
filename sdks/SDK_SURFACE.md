@@ -11,7 +11,8 @@ Server sources: `docs/agent-network/AGENT_API.md`, `packages/dashboard/src/route
 `packages/proxy-gateway/src/auth.ts` (`parseProxyOptions`).
 
 **Totals: 15 resources, 73 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
-are conveniences on top and are not counted.
+are conveniences on top and are not counted. A 16th resource, `proxyTokens` (3 methods, section 3.18),
+is shipped by Node and Python (76 methods there) and is a follow-up for Go, Rust, Java and C++ (section 5).
 
 | Resource | Methods |
 |---|---|
@@ -139,7 +140,7 @@ the value MUST be a UUID, else ProtocolError. Then rebuild and compare the whole
 
 ### 1.6 Secret wrapper
 
-Credentials returned once by the server (new API key, team key, `dn_node_` key) are
+Credentials returned once by the server (new API key, team key, `dn_node_` key, `dn_proxy_` proxy token) are
 wrapped in `Secret`:
 - `reveal() -> string` returns the value;
 - `prefix` returns the first 8 characters;
@@ -476,6 +477,21 @@ Every SDK README documents: node-registration PoW is bound to the client IP (cal
 `register` from the same egress), and a troubleshooting table covering 402 vs 407, `EMAIL_NOT_VERIFIED`,
 `NO_NODES_AVAILABLE`, `PAYOUTS_DISABLED` and `REPORT_LIMIT`.
 
+### 3.18 proxyTokens (3) — [agent]
+
+Scoped, revocable `dn_proxy_` tokens for the proxy password field, so agents never put their `dn_live_`
+key in proxy URLs (AGENT_API.md "Proxy tokens"). The gateway refuses a token once it is revoked (within a
+few seconds), expired, or at its byte or spend cap. Use it anywhere the API key would go as the proxy
+password (`proxy.buildUrl` with the token in place of the key, curl `-x`).
+
+| Method | HTTP | Notes |
+|---|---|---|
+| `create({label?, ttlSeconds?, maxBytes?, maxSpendMusd?})` | `POST /v1/proxy-tokens` | label <= 64 printable chars; ttlSeconds integer 60..31536000 (server default 30 days); maxBytes 1..10^15 and maxSpendMusd (µUSD) 1..10^13 as big integer / digit string / safe integer, **sent as decimal strings**. Validate before sending. The response `token` must match `^dn_proxy_[A-Za-z0-9_-]{43}$` (else ProtocolError) and is returned in a `Secret`. 409 `PROXY_TOKEN_LIMIT` at 25 active tokens |
+| `list()` | `GET /v1/proxy-tokens` | `{tokens: [{id, label, status: active|revoked|expired|exhausted, expiresAt, maxBytes, maxSpendMusd, bytesUsed, spendUsedMusd, revokedAt, createdAt}], maxActive}`; counters are integer strings; no secrets |
+| `revoke(id)` | `DELETE /v1/proxy-tokens/:id` | id must be a UUID (validated, path-encoded); 404 when unknown or already revoked |
+
+Python: `proxy_tokens.create(label=None, ttl_seconds=None, max_bytes=None, max_spend_musd=None)`, `list()`, `revoke(id)`.
+
 ## 4. Tests every SDK must have
 
 Mock the HTTP transport (return bodies through the text()/raw-body path).
@@ -498,4 +514,4 @@ Mock the HTTP transport (return bodies through the text()/raw-body path).
 
 ## 5. Follow-ups
 
-None open.
+- `proxyTokens` (section 3.18) in Go, Rust, Java and C++ (Node and Python ship it, unreleased).

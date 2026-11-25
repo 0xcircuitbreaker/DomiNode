@@ -13,6 +13,12 @@ vi.mock("@dominusnode/shared", () => ({
     return crypto.createHash("sha256").update(raw).digest("hex");
   },
   verifyProxySessionToken: (...args: unknown[]) => mockVerifyProxySessionToken(...args),
+  proxyTokenRepo: {
+    OPAQUE_PROXY_TOKEN_RE: /^dn_proxy_[A-Za-z0-9_-]{43}$/,
+    hashProxyToken: () => "0".repeat(64),
+    findUsableByHash: async () => null,
+    recordUsage: async () => ({ withinCaps: true }),
+  },
   userRepo: {
     findUserByApiKey: (...args: unknown[]) => mockFindUserByApiKeyHash(...args),
     findUserById: (...args: unknown[]) => mockFindUserById(...args),

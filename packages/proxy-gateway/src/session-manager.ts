@@ -6,6 +6,7 @@ import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-ch
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { getUserConnCount } from "./connection-tracker.js";
+import { recordProxyTokenUsage } from "./auth.js";
 
 const log = createLogger("proxy:session");
 
@@ -45,6 +46,8 @@ export interface RelayBinding {
   requesterWallet?: string | null;
   /** Node-reported byte total from its CLOSE frame, once received (null until then). */
   nodeBytes?: () => bigint | null;
+  /** Set when the requester authenticated with an opaque dn_proxy_ token: usage counts against its caps. */
+  proxyTokenId?: string | null;
 }
 
 type ChargeSnapshot = Awaited<ReturnType<typeof tierRepo.getChargeSnapshot>>;
@@ -847,6 +850,15 @@ export async function awaitInFlightSettlements(timeoutMs: number): Promise<boole
   return true;
 }
 
+/** Spend charged to a proxy token: the prepaid amount, or ceil(bytes × locked price). */
+export function proxyTokenSpendMusd(session: { prepaid?: { paidMusd: bigint }; pricePerGbMusd: bigint }, totalBytes: number): bigint {
+  if (session.prepaid) return session.prepaid.paidMusd;
+  if (session.pricePerGbMusd <= 0n || totalBytes <= 0) return 0n;
+  const num = session.pricePerGbMusd * BigInt(totalBytes);
+  const den = BigInt(RELAY_BYTES_PER_GB);
+  return (num + den - 1n) / den;
+}
+
 async function settleSession(sessionId: string): Promise<void> {
   const session = activeSessions.get(sessionId);
   if (!session) return;
@@ -881,6 +893,11 @@ async function settleSession(sessionId: string): Promise<void> {
   if (totalBytes > 0) {
     recordBandwidthUsage(userId, totalBytes);
     recordBytes(counter.bytesIn, counter.bytesOut);
+  }
+
+  // Scoped dn_proxy_ token caps: count gateway-metered bytes and their price.
+  if (session.relay.proxyTokenId && totalBytes > 0) {
+    void recordProxyTokenUsage(session.relay.proxyTokenId, BigInt(totalBytes), proxyTokenSpendMusd(session, totalBytes));
   }
 
   let settleInput: relayChargeRepo.SettleRelayChargeInput | null = null;

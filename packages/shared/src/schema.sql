@@ -2383,3 +2383,24 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- whose originating key is revoked.
 ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS api_key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_api_key ON refresh_tokens (api_key_id) WHERE api_key_id IS NOT NULL;
+
+-- ═══ feat/revocable-proxy-tokens: scoped, revocable dn_proxy_ tokens ═══
+-- Opaque dn_proxy_<random> credentials for proxy auth. Only the SHA-256 hex of
+-- the token is stored. The gateway refuses a token once it is revoked, expired,
+-- or its byte/spend cap is reached (usage is gateway-metered).
+CREATE TABLE IF NOT EXISTS proxy_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash CHAR(64) NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+  label TEXT NOT NULL DEFAULT '' CHECK (length(label) BETWEEN 0 AND 64),
+  expires_at TIMESTAMPTZ NOT NULL,
+  max_bytes BIGINT CHECK (max_bytes IS NULL OR max_bytes BETWEEN 1 AND 1000000000000000),
+  max_spend_musd BIGINT CHECK (max_spend_musd IS NULL OR max_spend_musd BETWEEN 1 AND 10000000000000),
+  bytes_used BIGINT NOT NULL DEFAULT 0 CHECK (bytes_used BETWEEN 0 AND 1000000000000000),
+  spend_used_musd BIGINT NOT NULL DEFAULT 0 CHECK (spend_used_musd BETWEEN 0 AND 10000000000000),
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (expires_at > created_at)
+);
+CREATE INDEX IF NOT EXISTS idx_proxy_tokens_user ON proxy_tokens (user_id, created_at DESC);
+-- ═══ end feat/revocable-proxy-tokens ═══

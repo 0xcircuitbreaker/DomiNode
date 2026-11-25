@@ -52,6 +52,8 @@ export const RELAY_ERASURE_STATEMENTS: ReadonlyArray<{ label: string; sql: strin
   },
   { label: "agent_sign_challenges", sql: "DELETE FROM agent_sign_challenges WHERE user_id = $1" },
   { label: "agent_secrets", sql: "DELETE FROM agent_secrets WHERE user_id = $1" },
+  // Scoped proxy tokens (hash + caps); deleting them also stops gateway auth.
+  { label: "proxy_tokens", sql: "DELETE FROM proxy_tokens WHERE user_id = $1" },
   // Non-EVM payer address -> user mapping.
   { label: "payer_identities", sql: "DELETE FROM payer_identities WHERE user_id = $1" },
   // Burn reports this user filed as a requester.

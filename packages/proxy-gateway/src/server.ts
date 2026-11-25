@@ -388,6 +388,7 @@ function relaySelectOpts(
 
 function relayBinding(auth: AuthResult, node: LiveNode, port: number, stream?: Duplex): RelayBinding {
   return {
+    proxyTokenId: auth.proxyTokenId ?? null,
     nodeId: node.nodeId,
     ipClass: node.ipClass,
     nodeOwnerUserId: node.ownerUserId,
