@@ -157,6 +157,9 @@ describe("session-start budget reservation", () => {
   it("computeGrant for prepaid sessions reserves the paid amount or refuses", () => {
     expect(computeGrant(t({ maxSpendMusd: 100n }), 10n, 1n, 80n)).toEqual({ bytes: 10n, spendMusd: 80n });
     expect(computeGrant(t({ maxSpendMusd: 100n, spendUsedMusd: 30n }), 10n, 1n, 80n)).toBeNull();
+    // remaining bytes below what was paid for: refuse rather than charge in full for less
+    expect(computeGrant(t({ maxBytes: 100n, bytesUsed: 95n }), 10n, 1n, 80n)).toBeNull();
+    expect(computeGrant(t({ maxBytes: 100n, bytesUsed: 90n }), 10n, 1n, 80n)).toEqual({ bytes: 10n, spendMusd: 80n });
   });
   it("reserves under a row lock with a conditional update", async () => {
     const r = setup([

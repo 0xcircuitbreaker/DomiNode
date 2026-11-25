@@ -108,6 +108,11 @@ export async function reserveProxyTokenBudget(
   return g;
 }
 
+/** True for the gateway's refusal of a session its dn_proxy_ token cannot carry. */
+export function isProxyTokenBudgetError(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith("Proxy token budget");
+}
+
 /** Settle a session's token reservation against metered usage. Never throws. */
 export async function settleProxyTokenBudget(tokenId: string, grant: proxyTokenRepo.TokenGrant, bytes: bigint, spendMusd: bigint): Promise<void> {
   try {

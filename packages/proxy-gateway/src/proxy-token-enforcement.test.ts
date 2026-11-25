@@ -61,6 +61,7 @@ import { startSession, endSession, terminateProxyTokenSessions, liveProxyTokenId
 import type { ByteCounter } from "./counting-stream.js";
 import { _resetPolicyEnforcer } from "./policy-enforcer.js";
 import { runOnce as sweep } from "./jobs/proxy-token-status.js";
+import { reserveProxyTokenBudget, isProxyTokenBudgetError } from "./auth.js";
 
 const TOKEN = "33333333-3333-4333-8333-333333333333";
 const OTHER = "44444444-4444-4444-8444-444444444444";
@@ -218,5 +219,14 @@ describe("per-token session termination", () => {
     expect(liveProxyTokenIds()).toEqual([OTHER]);
     void a;
     await endSession(b);
+  });
+});
+
+describe("refusal mapping", () => {
+  it("only an exhausted budget maps to PROXY_TOKEN_EXHAUSTED (x402/MPP paths included); lookup errors do not", () => {
+    expect(isProxyTokenBudgetError(new Error("Proxy token budget exhausted"))).toBe(true);
+    expect(isProxyTokenBudgetError(new Error("Unable to verify proxy token budget. Please try again."))).toBe(false);
+    expect(isProxyTokenBudgetError("Proxy token budget exhausted")).toBe(false);
+    expect(typeof reserveProxyTokenBudget).toBe("function");
   });
 });

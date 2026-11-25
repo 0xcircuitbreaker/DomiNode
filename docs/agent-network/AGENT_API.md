@@ -367,7 +367,8 @@ curl -x https://country-US:dn_proxy_XXXX@proxy.example.org:8443 https://httpbin.
     remaining budget under a row lock: at most the bytes its wallet
     reservation covers, the bytes left under `maxBytes`, and the bytes the
     spend left under `maxSpendMusd` buys at the locked price (an x402/MPP
-    session needs its whole paid amount to fit). The reservation is counted
+    session needs its whole paid amount and paid bytes to fit; it is
+    refused rather than charged in full for fewer bytes). The reservation is counted
     in `bytesUsed` / `spendUsedMusd` at once, so several sessions started
     together near a cap, on any gateway, can never together be granted more
     than the cap; the ones that do not fit are refused.

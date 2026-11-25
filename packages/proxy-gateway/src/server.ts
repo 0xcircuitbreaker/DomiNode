@@ -6,7 +6,7 @@ import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestI
 import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
-import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, forgetProxyToken, UNSUPPORTED_TARGETING_CODE, type AuthResult } from "./auth.js";
+import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, forgetProxyToken, isProxyTokenBudgetError, UNSUPPORTED_TARGETING_CODE, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
@@ -652,7 +652,8 @@ async function handleRequest(
         upstream.stream.destroy();
         await releaseX402Pending(x402Data.pending);
         log.error("x402 session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
-        sendError(clientRes, 500, "INTERNAL_ERROR", "Internal proxy error");
+        if (isProxyTokenBudgetError(err)) sendError(clientRes, 403, "PROXY_TOKEN_EXHAUSTED", "Proxy token byte or spend cap reached (budget may be held by open sessions)");
+        else sendError(clientRes, 500, "INTERNAL_ERROR", "Internal proxy error");
         return;
       }
 
@@ -1271,7 +1272,9 @@ async function handleX402ConnectTunnel(
   } catch (err) {
     log.error("x402 CONNECT session start failed", { error: err instanceof Error ? err.message.slice(0, 120) : "unknown" });
     psStream.destroy();
-    await reject("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    await reject(isProxyTokenBudgetError(err)
+      ? "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: PROXY_TOKEN_EXHAUSTED\r\n\r\n"
+      : "HTTP/1.1 500 Internal Server Error\r\n\r\n");
     return;
   }
 

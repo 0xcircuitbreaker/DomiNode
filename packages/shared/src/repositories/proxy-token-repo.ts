@@ -268,6 +268,9 @@ export function computeGrant(
   if (bytes <= 0n) return null;
   const remSpend = t.maxSpendMusd === null ? null : t.maxSpendMusd - t.spendUsedMusd;
   if (fixedSpendMusd !== undefined && fixedSpendMusd !== null) {
+    // A prepaid session has already been priced for wantBytes: never take the
+    // full payment for fewer bytes than it bought. Refuse instead.
+    if (bytes < wantBytes) return null;
     if (remSpend !== null && remSpend < fixedSpendMusd) return null;
     return { bytes, spendMusd: fixedSpendMusd < 0n ? 0n : fixedSpendMusd };
   }
