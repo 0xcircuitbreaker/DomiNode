@@ -594,24 +594,54 @@ After the first registration, flag the node: admin panel → Launch controls →
 
 ### Self-host admin
 
-The coordinator profile runs the admin UI (`frontend` service, nginx serving
-the React build with `infra/nginx/selfhost.conf`: plain HSTS, no
-`includeSubDomains`/`preload`, `connect-src 'self'`). Caddy sends `/api/*`,
-`/v1/*`, `/.well-known/*`, `/status` and `/llms.txt` to the API, only the admin
-paths (`/admin*`, `/login`, `/forgot-password`, `/reset-password`,
-`/verify-email`, `/assets/*`, icons, manifest) to the admin UI, redirects `/` to
-`/admin` and answers 404 elsewhere. The public DominusNode site pages
-(landing, pricing, report-abuse, terms, privacy, AUP) are not served on a
-self-host: they carry the official operator's contacts and terms. Abuse and
-operator contacts for your install come from `security.txt` and
-`coordinator.json` (`ABUSE_CONTACT`, `OPERATOR_CONTACT`).
+The coordinator profile runs the site router and admin UI (`frontend`
+service: nginx serving the React build with `infra/nginx/selfhost.conf`: plain
+HSTS, no `includeSubDomains`/`preload`, `connect-src 'self'`). Its nginx sends
+`/api/*`, `/v1*`, `/.well-known/*`, `/status*`, `/llms.txt` and `/health` to
+`api:3000`, serves the admin UI on `/admin*` and the auth pages (`/login`,
+`/forgot-password`, `/reset-password`, `/verify-email`), and serves the public
+site (landing, pricing, run-a-node, report-abuse, terms, privacy, AUP, FAQ) only
+with `PUBLIC_SITE=1`. With `PUBLIC_SITE=0` (the default) `/` redirects to
+`/admin` and the other site pages are 404: the stock pages carry the contact
+baked in at build time (`OPERATOR_CONTACT`) and the stock terms, so turn them
+on only when those are yours. Abuse and operator contacts for your install come
+from `security.txt` and `coordinator.json` (`ABUSE_CONTACT`, `OPERATOR_CONTACT`).
 
-With `TLS_MODE=cloudflare`, give the admin hostname path-based ingress rules in
-the tunnel, in this order: `/api/*`, `/v1/*`, `/.well-known/*`, `/status*` and
-`/llms.txt` to `http://api:3000`, then everything else to
-`http://frontend:8080`. Do not send `/api` through the frontend: nginx adds a
-hop the api does not trust (`TRUST_PROXY=1`), so every client would share the
-cloudflared address for login rate limits and lockouts.
+With Caddy in front (`TLS_MODE` auto/internal/off), Caddy sends the API paths
+straight to `api:3000` and everything else to `frontend:8080`.
+
+With `TLS_MODE=cloudflare` (no Caddy on the coordinator), point **every**
+tunnel public hostname (apex, `www`, `api`, ...) at the frontend, which does
+the routing above:
+
+| Field | Value |
+|-------|-------|
+| Path | (empty) |
+| Service type | HTTP |
+| URL | `frontend:8080` |
+
+Do not point a hostname, or a path rule, at `http://api:3000`: it bypasses the
+site router, so the apex serves the API's `{"error":"Not found"}` instead of the
+site. The installer prints this target ("tunnel target:") on every run. nginx
+takes the client address from cloudflared's `X-Forwarded-For` (it trusts only
+the compose `frontend` network) and passes the api a single address, so the
+api's one trusted hop (`TRUST_PROXY=1`) still sees per-client IPs for login
+rate limits and lockouts.
+
+Moving an existing tunnel install to this layout:
+
+1. Pull, then re-run `./scripts/selfhost/install.sh --yes` (add
+   `PUBLIC_SITE=1` to serve the landing page; it is kept in `.env`). This
+   rebuilds the frontend image with the routing nginx config.
+2. Cloudflare dashboard: Networks > Tunnels > your tunnel > Public hostnames.
+   For each hostname, edit it to service HTTP, URL `frontend:8080`, no path,
+   and delete any extra path rules for `api:3000`.
+3. Check: `curl -sI https://<apex>/` (200 with `PUBLIC_SITE=1`, else 302 to
+   `/admin`), `curl -s https://<host>/health` and `/api/health` (both
+   `{"status":"ok",...}`), `/llms.txt`, `/status`,
+   `/.well-known/dominusnode/coordinator.json`.
+
+`GET /health` is an alias of `GET /api/health` (same body).
 
 First admin (§8a, with the installer doing the env part):
 
