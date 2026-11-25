@@ -4,11 +4,12 @@
 // repo's own built node-agent tunnel client from packages/node-agent/dist).
 import fs from 'node:fs';
 import net from 'node:net';
+import tls from 'node:tls';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  ArgError, Reservoir, USAGE, buildReport, classifyError, httpConnectErrorClass, meteringAccuracy, parseArgs,
-  protocolsFor, renderText, socksErrorClass, splitHostPort, validateConfig,
+  ArgError, Reservoir, USAGE, accessTokenFromVerifyKey, buildReport, classifyError, httpConnectErrorClass, meteringAccuracy, parseArgs,
+  protocolsFor, renderText, socksErrorClass, splitHostPort, totalBytesFromUsage, validateConfig,
 } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -237,8 +238,11 @@ function runTunnel(protocol, cfg, ctx) {
   const port = protocol === 'http' ? cfg.httpPort : cfg.socksPort;
   const res = { connectMs: null, totalMs: null, up: 0, down: 0 };
   return new Promise((resolve, reject) => {
-    const sock = net.connect(port, cfg.gateway);
+    const sock = ctx.tls
+      ? tls.connect({ port, host: cfg.gateway, servername: net.isIP(cfg.gateway) ? undefined : cfg.gateway, ...ctx.tls })
+      : net.connect(port, cfg.gateway);
     sock.setNoDelay(true);
+    const readyEvent = ctx.tls ? 'secureConnect' : 'connect';
     const timer = setTimeout(() => {
       const e = lgError(res.connectMs === null ? 'timeout_handshake' : 'timeout_transfer', 'timeout');
       sock.destroy();
@@ -246,7 +250,7 @@ function runTunnel(protocol, cfg, ctx) {
     }, cfg.timeout * 1000);
     const fail = (e) => { clearTimeout(timer); sock.destroy(); reject(Object.assign(e, { partial: res })); };
     sock.once('error', fail);
-    sock.once('connect', async () => {
+    sock.once(readyEvent, async () => {
       sock.off('error', fail);
       try {
         const rest = protocol === 'http'
@@ -295,14 +299,18 @@ export function sampleProc(pid) {
 
 // ─── Metering ──────────────────────────────────────────────────────────────
 async function billedBytesSince(apiUrl, key, since) {
+  // /api routes take a JWT, not the raw key: exchange it first (as the SDKs do).
+  const vk = await fetch(new URL('/api/auth/verify-key', apiUrl), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key }),
+    redirect: 'error', signal: AbortSignal.timeout(15_000),
+  });
+  if (!vk.ok) throw new Error(`verify-key failed: HTTP ${vk.status}`);
+  const token = accessTokenFromVerifyKey(await vk.json());
   const url = new URL('/api/usage', apiUrl);
   url.searchParams.set('since', new Date(since).toISOString());
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`usage query failed: HTTP ${res.status}`);
-  const body = await res.json();
-  const n = Number(body?.summary?.totalBytes);
-  if (!Number.isFinite(n)) throw new Error('usage reply has no summary.totalBytes');
-  return n;
+  return totalBytesFromUsage(await res.json());
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -337,6 +345,7 @@ async function main(argv) {
   }
 
   const ctx = {
+    tls: cfg.tls ? { ca: cfg.tlsCaFile ? fs.readFileSync(cfg.tlsCaFile) : undefined, rejectUnauthorized: true } : null,
     payload: Buffer.alloc(Math.min(cfg.requestBytes, 64 * 1024) || 1, 0x62),
     password: key,
     basicAuth: key || cfg.mockGateway ? Buffer.from(`${cfg.username}:${key}`).toString('base64') : '',

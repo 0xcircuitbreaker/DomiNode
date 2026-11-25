@@ -38,12 +38,18 @@ Safety:
   ULA, `localhost`) unless `--allow-remote` is passed. Loading a remote gateway
   costs real money and real node bandwidth; only do it against staging that you
   own.
+- A non-local gateway must be reached with `--tls` (HTTPS proxy on 8443,
+  SOCKS5-TLS on 1443; `--tls-ca-file` for a self-signed certificate), and
+  non-local `--api-url` / `--tunnel-url` must be `https://` / `wss://`: the
+  harness refuses to send a key over plaintext to another host. Production
+  gateways refuse credentials on plaintext 8080/1080 anyway (`PROXY_REQUIRE_TLS`).
+- `--gateway-pid` needs a loopback `--gateway` (it reads this host's `/proc`).
 - Keys come from the environment only. No flag accepts a key, and errors are
   scrubbed of `dn_*` keys.
 
 | Variable | Used for |
 |---|---|
-| `DN_LOADTEST_API_KEY` | Requester `dn_live_` key: proxy password, `/api/usage` bearer |
+| `DN_LOADTEST_API_KEY` | Requester `dn_live_` key: proxy password; exchanged at `/api/auth/verify-key` for the JWT that `/api/usage` needs (accounts with MFA on cannot use the metering check) |
 | `DN_LOADTEST_NODE_KEY_FILES` | Comma-separated node key files (mode 0600) from `node-agent register` |
 | `DN_LOADTEST_COORD_PINS` | Coordinator ed25519 public keys (hex), comma-separated |
 | `DN_LOADTEST_TUNNEL_CA_FILE` | Optional PEM CA when the local tunnel uses a self-signed certificate |
@@ -115,7 +121,7 @@ the final report is still written.
 
 ### 2.4 Against staging
 
-Only with `--allow-remote`, a dedicated funded key, and real nodes (no
+Only with `--allow-remote --tls`, a dedicated funded key, and real nodes (no
 `--mock-nodes` unless the staging tunnel is reachable). Tunnels then exit through
 real nodes to `--target`, which must be a sink you run (for example a TCP sink on
 a host you own at `sink.example.org:443`). Never point it at third-party sites.

@@ -9,6 +9,8 @@ export const DEFAULTS = Object.freeze({
   gateway: '127.0.0.1',
   httpPort: 8080,
   socksPort: 1080,
+  tls: false,
+  tlsCaFile: '',
   protocol: 'both',
   concurrency: 10,
   rate: 0,
@@ -40,6 +42,8 @@ const FLAGS = {
   '--gateway': ['gateway', 'string'],
   '--http-port': ['httpPort', 'int'],
   '--socks-port': ['socksPort', 'int'],
+  '--tls': ['tls', 'bool'],
+  '--tls-ca-file': ['tlsCaFile', 'string'],
   '--protocol': ['protocol', 'string'],
   '--concurrency': ['concurrency', 'int'],
   '--rate': ['rate', 'number'],
@@ -69,10 +73,14 @@ export class ArgError extends Error {
   }
 }
 
+/** Gateway TLS listener defaults (PROXY_TLS_PORT / SOCKS5_TLS_PORT). */
+export const TLS_PORTS = Object.freeze({ httpPort: 8443, socksPort: 1443 });
+
 /** Parse argv (without node + script) into a config object. Throws ArgError. */
 export function parseArgs(argv) {
   const cfg = { ...DEFAULTS, help: false };
   let durationSet = false;
+  const portsSet = new Set();
   for (let i = 0; i < argv.length; i++) {
     let arg = argv[i];
     if (arg === '-h' || arg === '--help') {
@@ -89,6 +97,7 @@ export function parseArgs(argv) {
     if (!spec) throw new ArgError(`unknown option: ${arg}`);
     const [key, type] = spec;
     if (key === 'duration') durationSet = true;
+    if (key === 'httpPort' || key === 'socksPort') portsSet.add(key);
     if (type === 'bool') {
       if (value !== undefined && value !== 'true' && value !== 'false') throw new ArgError(`${arg} takes no value`);
       cfg[key] = value !== 'false';
@@ -107,6 +116,7 @@ export function parseArgs(argv) {
     }
   }
   if (cfg.soak && !durationSet) cfg.duration = DEFAULTS.soakDuration;
+  if (cfg.tls) for (const k of ['httpPort', 'socksPort']) if (!portsSet.has(k)) cfg[k] = TLS_PORTS[k];
   return cfg;
 }
 
@@ -127,6 +137,18 @@ export function isLocalHost(host) {
     return /^f[cd]/.test(h) || /^fe[89ab]/.test(h);
   }
   return false;
+}
+
+/** True only for loopback literals and localhost names (this host). */
+export function isLoopbackHost(host) {
+  if (typeof host !== 'string' || host === '') return false;
+  let h = host.toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h.startsWith('::ffff:')) h = h.slice(7);
+  const v = net.isIP(h);
+  if (v === 4) return h.split('.')[0] === '127';
+  return v === 6 && h === '::1';
 }
 
 /** Split host:port (IPv6 bracketed). Returns null when malformed. */
@@ -176,6 +198,9 @@ export function validateConfig(cfg) {
     errs.push('--username must be gateway flags joined by hyphens (e.g. relay, country-US-class-dc)');
   }
   if (typeof cfg.out !== 'string' || cfg.out === '' || /[\0]/.test(cfg.out)) errs.push('--out must be a file prefix');
+  if (cfg.tls && cfg.mockGateway) errs.push('--tls cannot be used with --mock-gateway (the mock gateway is plaintext)');
+  if (cfg.tlsCaFile && !cfg.tls) errs.push('--tls-ca-file needs --tls');
+  if (typeof cfg.tlsCaFile !== 'string' || /[\0]/.test(cfg.tlsCaFile)) errs.push('--tls-ca-file must be a path');
   if (cfg.mockGateway && cfg.mockNodes) errs.push('--mock-gateway and --mock-nodes cannot be combined');
   if (cfg.mockNodes && !cfg.tunnelUrl) errs.push('--mock-nodes needs --tunnel-url (the gateway node tunnel, wss://...)');
 
@@ -188,6 +213,10 @@ export function validateConfig(cfg) {
       if (name === '--tunnel-url' && !['ws:', 'wss:'].includes(url.protocol)) errs.push('--tunnel-url must be ws:// or wss://');
       if (name === '--api-url' && !['http:', 'https:'].includes(url.protocol)) errs.push('--api-url must be http:// or https://');
       endpoints.push([name, host]);
+      // Remote endpoints carry a key (API key bearer, node key): never in plaintext.
+      if (!isLocalHost(host) && (url.protocol === 'http:' || url.protocol === 'ws:')) {
+        errs.push(`${name} must use ${name === '--api-url' ? 'https' : 'wss'}:// for a non-local host (the key would travel in plaintext)`);
+      }
     } catch (e) {
       errs.push(e.message);
     }
@@ -197,8 +226,11 @@ export function validateConfig(cfg) {
       if (!isLocalHost(host)) errs.push(`${name} ${host} is not a local address; pass --allow-remote to load a remote gateway`);
     }
   }
-  if (cfg.gatewayPid && cfg.allowRemote && !isLocalHost(cfg.gateway)) {
-    errs.push('--gateway-pid samples /proc on this host; it cannot be used with a remote --gateway');
+  if (!cfg.mockGateway && !cfg.tls && !isLocalHost(cfg.gateway)) {
+    errs.push('a non-local --gateway needs --tls (8443/1443): the proxy password is the API key and plaintext 8080/1080 would expose it');
+  }
+  if (cfg.gatewayPid && !isLoopbackHost(cfg.gateway)) {
+    errs.push('--gateway-pid samples /proc on this host; it needs a loopback --gateway');
   }
   return errs;
 }
@@ -292,6 +324,25 @@ export function socksErrorClass(rep) {
   return `socks5_${SOCKS_REPLIES[rep] ?? 'rep_' + rep}`;
 }
 
+/** Access token from a POST /api/auth/verify-key reply; throws when absent (fail closed). */
+export function accessTokenFromVerifyKey(body) {
+  if (body && body.mfaRequired === true) throw new Error('verify-key refused: account has MFA on, /api/usage is unreachable with a key');
+  const t = body?.token;
+  if (typeof t !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t) || t.length > 4096) {
+    throw new Error('verify-key reply has no access token');
+  }
+  return t;
+}
+
+/** summary.totalBytes from a GET /api/usage reply; throws when absent. */
+export function totalBytesFromUsage(body) {
+  const n = Number(body?.summary?.totalBytes);
+  if (body?.summary?.totalBytes === null || body?.summary?.totalBytes === undefined || !Number.isFinite(n) || n < 0) {
+    throw new Error('usage reply has no summary.totalBytes');
+  }
+  return n;
+}
+
 /** Billed bytes vs bytes the clients pushed through established tunnels. */
 export function meteringAccuracy(sentBytes, billedBytes) {
   if (billedBytes === null || billedBytes === undefined || !Number.isFinite(billedBytes)) {
@@ -363,6 +414,7 @@ export function buildReport({ cfg, startedAt, endedAt, proto, samples, billedByt
     durationSec: Math.round(secs * 100) / 100,
     config: {
       gateway: cfg.gateway,
+      tls: cfg.tls,
       httpPort: cfg.httpPort,
       socksPort: cfg.socksPort,
       protocols: protocolsFor(cfg),
@@ -438,12 +490,16 @@ local sink server and writes <out>.json and <out>.txt.
 
 Target selection
   --gateway HOST            gateway host (default 127.0.0.1; must be local)
-  --http-port N             HTTP proxy port (default 8080)
-  --socks-port N            SOCKS5 port (default 1080)
+  --http-port N             HTTP proxy port (default 8080; 8443 with --tls)
+  --socks-port N            SOCKS5 port (default 1080; 1443 with --tls)
+  --tls                     TLS to the gateway (HTTPS proxy 8443, SOCKS5-TLS 1443);
+                            required for a non-local gateway
+  --tls-ca-file PATH        PEM CA for a self-signed gateway certificate
   --protocol P              http | socks5 | both (default both)
   --target HOST:PORT        CONNECT target (default loadtest.example.org:443)
   --username FLAGS          proxy username flags (default relay)
-  --allow-remote            allow non-local gateway/tunnel/API hosts
+  --allow-remote            allow non-local gateway/tunnel/API hosts (needs --tls,
+                            wss:// and https://)
 
 Load shape
   --concurrency N           concurrent clients per protocol (default 10)
@@ -469,7 +525,8 @@ Measurements
   --out PREFIX              report path prefix (default loadtest-report)
 
 Environment (secrets are never accepted as arguments)
-  DN_LOADTEST_API_KEY            requester dn_live_ key (proxy password, /api/usage)
+  DN_LOADTEST_API_KEY            requester dn_live_ key (proxy password; exchanged at
+                                 /api/auth/verify-key for the /api/usage JWT)
   DN_LOADTEST_NODE_KEY_FILES     comma-separated node key files (mode 0600), --mock-nodes
   DN_LOADTEST_COORD_PINS         coordinator ed25519 pubkeys (hex, comma-separated)
   DN_LOADTEST_TUNNEL_CA_FILE     optional PEM CA for a self-signed local tunnel

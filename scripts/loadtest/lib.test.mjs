@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ArgError, DEFAULTS, Reservoir, buildReport, classifyError, httpConnectErrorClass, isLocalHost,
   latencySummary, meteringAccuracy, parseArgs, percentile, protocolsFor, renderText, seriesSummary,
-  socksErrorClass, splitHostPort, validateConfig,
+  socksErrorClass, splitHostPort, validateConfig, isLoopbackHost, accessTokenFromVerifyKey, totalBytesFromUsage,
 } from './lib.mjs';
 
 describe('parseArgs', () => {
@@ -54,7 +54,7 @@ describe('validateConfig', () => {
     expect(validateConfig({ ...ok(), gateway: 'gw.example.org' }).join()).toMatch(/--allow-remote/);
     expect(validateConfig({ ...ok(), apiUrl: 'https://api.example.org' }).join()).toMatch(/--api-url.*--allow-remote/);
     expect(validateConfig({ ...ok(), mockNodes: true, tunnelUrl: 'wss://gw.example.org/tunnel' }).join()).toMatch(/--tunnel-url/);
-    expect(validateConfig({ ...ok(), gateway: 'gw.example.org', allowRemote: true })).toEqual([]);
+    expect(validateConfig({ ...ok(), gateway: 'gw.example.org', allowRemote: true, tls: true })).toEqual([]);
   });
   it('rejects gateway-pid with a remote gateway', () => {
     expect(validateConfig({ ...ok(), gateway: 'gw.example.org', allowRemote: true, gatewayPid: 12 }).join()).toMatch(/proc/);
@@ -161,5 +161,57 @@ describe('report', () => {
     const t2 = renderText(buildReport({ cfg: parseArgs([]), startedAt: 0, endedAt: 1, billedBytes: null, samples: [], proto: {} }));
     expect(t2).toContain('not sampled');
     expect(t2).toContain('Metering: not measured');
+  });
+});
+
+describe('transport security (review fixes)', () => {
+  const ok = () => parseArgs([]);
+  it('--tls switches default ports to the TLS listeners (8443 / 1443)', () => {
+    const c = parseArgs(['--tls']);
+    expect([c.httpPort, c.socksPort]).toEqual([8443, 1443]);
+    const d = parseArgs(['--tls', '--http-port', '9000']);
+    expect([d.httpPort, d.socksPort]).toEqual([9000, 1443]);
+    const e = parseArgs([]);
+    expect([e.httpPort, e.socksPort]).toEqual([8080, 1080]);
+  });
+  it('refuses a remote gateway over plaintext even with --allow-remote', () => {
+    expect(validateConfig({ ...ok(), gateway: 'gw.example.org', allowRemote: true }).join()).toMatch(/needs --tls/);
+  });
+  it('refuses plaintext remote API and tunnel URLs', () => {
+    expect(validateConfig({ ...ok(), allowRemote: true, apiUrl: 'http://api.example.org' }).join()).toMatch(/--api-url must use https/);
+    expect(validateConfig({ ...ok(), allowRemote: true, mockNodes: true, tunnelUrl: 'ws://gw.example.org/v1/tunnel' }).join()).toMatch(/--tunnel-url must use wss/);
+    expect(validateConfig({ ...ok(), apiUrl: 'http://127.0.0.1:3000' })).toEqual([]);
+    expect(validateConfig({ ...ok(), allowRemote: true, apiUrl: 'https://api.example.org' })).toEqual([]);
+  });
+  it('rejects --tls with --mock-gateway and --tls-ca-file without --tls', () => {
+    expect(validateConfig({ ...ok(), tls: true, mockGateway: true }).join()).toMatch(/--mock-gateway/);
+    expect(validateConfig({ ...ok(), tlsCaFile: '/x.pem' }).join()).toMatch(/needs --tls/);
+  });
+  it('--gateway-pid needs a loopback gateway, not just a private one', () => {
+    expect(validateConfig({ ...ok(), gateway: '10.66.0.5', gatewayPid: 7 }).join()).toMatch(/proc/);
+    expect(validateConfig({ ...ok(), gateway: '127.0.0.1', gatewayPid: 7 })).toEqual([]);
+    expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('[::ffff:127.0.0.1]')).toBe(true);
+    expect(isLoopbackHost('192.168.1.1')).toBe(false);
+    expect(isLoopbackHost('localhost')).toBe(true);
+  });
+});
+
+describe('metering API replies (fail closed)', () => {
+  it('extracts the JWT from verify-key', () => {
+    expect(accessTokenFromVerifyKey({ valid: true, token: 'aa.bb.cc' })).toBe('aa.bb.cc');
+  });
+  it('refuses MFA, missing or malformed tokens', () => {
+    expect(() => accessTokenFromVerifyKey({ mfaRequired: true })).toThrow(/MFA/);
+    expect(() => accessTokenFromVerifyKey({ valid: true })).toThrow(/no access token/);
+    expect(() => accessTokenFromVerifyKey({ token: 'dn_live_abc' })).toThrow(/no access token/);
+    expect(() => accessTokenFromVerifyKey(null)).toThrow();
+  });
+  it('reads summary.totalBytes and refuses absent or negative values', () => {
+    expect(totalBytesFromUsage({ summary: { totalBytes: '1234' } })).toBe(1234);
+    expect(totalBytesFromUsage({ summary: { totalBytes: 0 } })).toBe(0);
+    expect(() => totalBytesFromUsage({ summary: {} })).toThrow();
+    expect(() => totalBytesFromUsage({ summary: { totalBytes: null } })).toThrow();
+    expect(() => totalBytesFromUsage({ summary: { totalBytes: -1 } })).toThrow();
   });
 });
