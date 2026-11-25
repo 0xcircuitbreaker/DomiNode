@@ -3,6 +3,7 @@
  * dominusnode-node CLI.
  *   dominusnode-node register --wallet-key-file <path>   (owner API key in DN_API_KEY env)
  *   dominusnode-node run
+ *   dominusnode-node selfcheck [--dial-target HOST]   (exits non-zero on any failed check)
  * Secrets are never accepted as arguments.
  */
 import { loadConfig, ConfigError, isDemoMode, type FlagMap } from "./config.js";
@@ -13,6 +14,7 @@ import { effectiveCoordPins } from "./coord-pins.js";
 import { applyCoordinator } from "./coordinator.js";
 import { TunnelClient, scrub, stderrLogger } from "./tunnel-client.js";
 import { reportTlsCapability } from "./shared.js";
+import { selfcheckCommand } from "./cli.js";
 import { startSelfDiscovery, type SelfDiscoveryOptions } from "./self-discovery.js";
 
 export const AGENT_VERSION = "0.1.0";
@@ -67,11 +69,11 @@ export function resolveRunCoordPins(cfg: { coordPins: string[]; coordPinsExclusi
   return cfg.coordPinsExclusive ? cfg.coordPins : effectiveCoordPins(cfg.coordPins);
 }
 
-const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N] [--coordinator DOMAIN --trust sha256:FINGERPRINT]";
+const USAGE = "usage: dominusnode-node <register --wallet-key-file PATH | run | selfcheck> [--key-file PATH] [--ports 80,443] [--max-streams N] [--req-per-sec N] [--gb-per-day N] [--coordinator DOMAIN --trust sha256:FINGERPRINT]";
 
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd !== "register" && cmd !== "run") {
+  if (cmd !== "register" && cmd !== "run" && cmd !== "selfcheck") {
     process.stderr.write(USAGE + "\n");
     return 2;
   }
@@ -86,6 +88,10 @@ export async function main(argv: string[]): Promise<number> {
   );
   if (isDemoMode(process.env)) {
     process.stderr.write("\n*** DEMO MODE, NOT FOR PRODUCTION: plaintext gateway allowed, local demo coordinator only ***\n\n");
+  }
+
+  if (cmd === "selfcheck") {
+    return await selfcheckCommand(cfg, flags, undefined, {}, resolveRunCoordPins(cfg).length);
   }
 
   if (cmd === "register") {
