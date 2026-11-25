@@ -92,7 +92,7 @@ pub struct DominusNodeClient {
     pub x402: X402Resource,
     /// Network info (3).
     pub network: NetworkResource,
-    /// Nodes (6).
+    /// Nodes (7).
     pub nodes: NodesResource,
     /// Credits (4).
     pub credits: CreditsResource,
@@ -100,6 +100,8 @@ pub struct DominusNodeClient {
     pub payout_wallet: PayoutWalletResource,
     /// Payouts (1).
     pub payouts: PayoutsResource,
+    /// Proxy tokens (3).
+    pub proxy_tokens: ProxyTokensResource,
     /// Proxy (5).
     pub proxy: ProxyResource,
     creds: Arc<Credentials>,
@@ -151,6 +153,7 @@ impl DominusNodeClient {
             credits: CreditsResource::new(http.clone()),
             payout_wallet: PayoutWalletResource::new(http.clone()),
             payouts: PayoutsResource::new(http.clone()),
+            proxy_tokens: ProxyTokensResource::new(http.clone()),
             proxy: ProxyResource::new(
                 http.clone(),
                 creds.clone(),

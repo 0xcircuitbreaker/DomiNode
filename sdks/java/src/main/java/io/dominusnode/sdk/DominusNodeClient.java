@@ -14,6 +14,7 @@ import io.dominusnode.sdk.resources.NetworkResource;
 import io.dominusnode.sdk.resources.NodesResource;
 import io.dominusnode.sdk.resources.PayoutWalletResource;
 import io.dominusnode.sdk.resources.PayoutsResource;
+import io.dominusnode.sdk.resources.ProxyTokensResource;
 import io.dominusnode.sdk.resources.ProxyResource;
 import io.dominusnode.sdk.resources.SessionsResource;
 import io.dominusnode.sdk.resources.TeamsResource;
@@ -53,6 +54,7 @@ public final class DominusNodeClient implements AutoCloseable {
     private final CreditsResource credits;
     private final PayoutWalletResource payoutWallet;
     private final PayoutsResource payouts;
+    private final ProxyTokensResource proxyTokens;
     private final ProxyResource proxy;
 
     /** Result of {@link #connectWithKey(String)}. */
@@ -90,6 +92,7 @@ public final class DominusNodeClient implements AutoCloseable {
         this.credits = new CreditsResource(http);
         this.payoutWallet = new PayoutWalletResource(http);
         this.payouts = new PayoutsResource(http);
+        this.proxyTokens = new ProxyTokensResource(http);
         this.proxy = new ProxyResource(http, c.proxyHost == null ? Config.DEFAULT_PROXY_HOST : c.proxyHost,
                 c.httpProxyPort, c.socks5ProxyPort, this::apiKeyValue, c.resolver, c.gatewayTls);
         // Never cleared: TokenManager.clear() keeps it so reconnecting works.
@@ -178,6 +181,7 @@ public final class DominusNodeClient implements AutoCloseable {
     public PayoutWalletResource payoutWallet() { return payoutWallet; }
 
     public PayoutsResource payouts() { return payouts; }
+    public ProxyTokensResource proxyTokens() { return proxyTokens; }
 
     public ProxyResource proxy() { return proxy; }
 

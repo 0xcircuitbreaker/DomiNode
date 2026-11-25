@@ -10,10 +10,10 @@ the node PoW, random UUIDs). No signing key ever enters the SDK: EIP-191 signing
 ## Install (release tarball)
 
 The C++ SDK is not on a package registry. Each release attaches a source
-tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.4.0`:
+tarball and its SHA-256 to the GitHub Release `sdk-cpp-v2.5.0`:
 
 ```bash
-v=2.4.0
+v=2.5.0
 base=https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v$v
 curl -fLO "$base/dominusnode-cpp-$v.tar.gz" -fLO "$base/dominusnode-cpp-$v.tar.gz.sha256"
 sha256sum -c "dominusnode-cpp-$v.tar.gz.sha256"
@@ -26,8 +26,8 @@ or vendor it with CMake `FetchContent`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(dominusnode
-  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.4.0/dominusnode-cpp-2.4.0.tar.gz
-  URL_HASH SHA256=<from dominusnode-cpp-2.4.0.tar.gz.sha256>)
+  URL https://github.com/0xcircuitbreaker/DomiNode/releases/download/sdk-cpp-v2.5.0/dominusnode-cpp-2.5.0.tar.gz
+  URL_HASH SHA256=<from dominusnode-cpp-2.5.0.tar.gz.sha256>)
 FetchContent_MakeAvailable(dominusnode)
 target_link_libraries(app PRIVATE dominusnode)
 ```
@@ -94,7 +94,7 @@ int main() {
 `ClientConfig`: `base_url`, `proxy_host`, `http_proxy_port`, `socks5_proxy_port`,
 `access_token`, `refresh_token`, `transport` (inject a `std::function<HttpResponse(const HttpRequest&)>` in tests).
 
-## Resources (15 / 73 methods)
+## Resources (16 / 77 methods)
 
 | Member | Methods |
 |---|---|
@@ -108,7 +108,8 @@ int main() {
 | `sessions` | `get_active` (id/started_at/status only), `report` |
 | `x402` | `get_info` |
 | `network` | `policy`, `pricing`, `stats` |
-| `nodes` | `register_challenge`, `register_node(signer, opts)`, `list`, `revoke`, `update_caps`, `tier` |
+| `nodes` | `register_challenge`, `register_node(signer, opts)`, `list`, `revoke`, `update_caps`, `tier`, `earnings_projection` |
+| `proxy_tokens` | `create(opts)` (token in a `Secret`), `list`, `revoke` |
 | `credits` | `balance`, `transactions`, `convert(amount, signer)`, `withdraw(amount, signer)` |
 | `payout_wallet` | `get`, `set(address, signer, chain, old_signer)` |
 | `payouts` | `list` |
@@ -152,7 +153,7 @@ Every message is scrubbed of `dn_live_`/`dn_test_`/`dn_node_`/`dn_proxy_` keys a
 
 ## HTTP behaviour
 
-User-Agent `dominusnode-sdk-cpp/2.4.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
+User-Agent `dominusnode-sdk-cpp/2.5.0`; 30 s timeout; `CURLOPT_FOLLOWLOCATION` 0 (a 3xx is an
 error); TLS verification and TLS >= 1.2 set explicitly after every `curl_easy_reset()`;
 10 MB cap by Content-Length and in the write callback; one 429 retry
 (`min(Retry-After, 10 s)` ±10 %, floor 100 ms, 429 body not read); one forced JWT refresh

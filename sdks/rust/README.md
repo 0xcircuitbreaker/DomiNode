@@ -2,7 +2,7 @@
 
 Async Rust client for the Dominus Node relay network, for AI agents. It
 implements the language-neutral contract in `sdks/SDK_SURFACE.md` (reference:
-`sdks/node`): 15 resources, 73 methods, plus `connect_with_key`, `disconnect`
+`sdks/node`): 16 resources, 77 methods, plus `connect_with_key`, `disconnect`
 and `is_connected`.
 
 ```bash
@@ -61,7 +61,8 @@ async fn main() -> dominusnode::Result<()> {
 | `sessions` | `get_active`, `report` |
 | `x402` | `get_info` |
 | `network` | `policy`, `pricing`, `stats` |
-| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier` |
+| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier`, `earnings_projection` |
+| `proxy_tokens` | `create` (token in a `Secret`), `list`, `revoke` |
 | `credits` | `balance`, `transactions`, `convert`, `withdraw` |
 | `payout_wallet` | `get`, `set` |
 | `payouts` | `list` |

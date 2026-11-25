@@ -189,3 +189,6 @@ func uuidV4() string {
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
+
+// String returns a pointer to v (for optional string parameters).
+func String(v string) *string { return &v }

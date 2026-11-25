@@ -128,6 +128,59 @@ json NodesResource::update_caps(const std::string& node_id, const NodeCaps& caps
 
 json NodesResource::tier() { return http_.get("/v1/node/tier", AuthMode::Agent); }
 
+json NodesResource::earnings_projection(OptInt days) {
+    if (days) validate_int_range(*days, "days", 1, 30);
+    return http_.get("/v1/nodes/earnings/projection" + Query().add("days", days).str(), AuthMode::Agent);
+}
+
+// ─── proxy tokens ───────────────────────────────────────────────────────────
+
+static std::string proxy_token_cap(const MusdInput& v, std::uint64_t max, const std::string& name) {
+    try {
+        return v.normalize(1, max, name);
+    } catch (const ValidationError&) {
+        throw invalid_arg(name + " must be an integer between 1 and " + std::to_string(max));
+    }
+}
+
+CreatedProxyToken ProxyTokensResource::create(const CreateProxyTokenOptions& opts) {
+    json body = json::object();
+    if (opts.label) {
+        const std::string& l = *opts.label;
+        std::size_t chars = 0;
+        bool ctl = false;
+        for (unsigned char ch : l) {
+            if ((ch & 0xC0) != 0x80) ++chars;
+            if (ch < 0x20 || ch == 0x7f) ctl = true;
+        }
+        if (chars > 64 || ctl) throw invalid_arg("label must be at most 64 printable characters");
+        body["label"] = l;
+    }
+    if (opts.ttl_seconds) {
+        body["ttlSeconds"] = validate_int_range(*opts.ttl_seconds, "ttlSeconds", PROXY_TOKEN_MIN_TTL_SECONDS, PROXY_TOKEN_MAX_TTL_SECONDS);
+    }
+    if (opts.max_bytes) body["maxBytes"] = proxy_token_cap(*opts.max_bytes, PROXY_TOKEN_MAX_BYTES, "maxBytes");
+    if (opts.max_spend_musd) body["maxSpendMusd"] = proxy_token_cap(*opts.max_spend_musd, PROXY_TOKEN_MAX_SPEND_MUSD, "maxSpendMusd");
+    json r = http_.post("/v1/proxy-tokens", body, AuthMode::Agent);
+    static const std::regex token_re("^dn_proxy_[A-Za-z0-9_-]{43}$");
+    if (!r.is_object() || !r.contains("token") || !r["token"].is_string() ||
+        !std::regex_match(r["token"].get_ref<const std::string&>(), token_re)) {
+        throw ProtocolError("server returned a malformed proxy token");
+    }
+    CreatedProxyToken out;
+    out.token = Secret(r["token"].get<std::string>());
+    secure_zero_string(r["token"].get_ref<std::string&>());
+    r.erase("token");
+    out.info = std::move(r);
+    return out;
+}
+
+json ProxyTokensResource::list() { return http_.get("/v1/proxy-tokens", AuthMode::Agent); }
+
+json ProxyTokensResource::revoke(const std::string& id) {
+    return http_.del("/v1/proxy-tokens/" + url_encode(validate_uuid(id, "id")), AuthMode::Agent);
+}
+
 // ─── credits ────────────────────────────────────────────────────────────────
 
 json CreditsResource::balance() { return http_.get("/v1/credits", AuthMode::Agent); }

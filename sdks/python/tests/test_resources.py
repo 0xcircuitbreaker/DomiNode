@@ -116,6 +116,10 @@ CASES = [
     ("nodes.update_caps", lambda c: c.nodes.update_caps(U, max_streams=4, req_per_sec=2), "PATCH", f"/v1/nodes/{U}",
      {"maxStreams": 4, "reqPerSec": 2}, "key", None),
     ("nodes.tier", lambda c: c.nodes.tier(), "GET", "/v1/node/tier", None, "key", None),
+    ("nodes.earnings_projection", lambda c: c.nodes.earnings_projection(days=14), "GET",
+     "/v1/nodes/earnings/projection?days=14", None, "key", None),
+    ("nodes.earnings_projection(default)", lambda c: c.nodes.earnings_projection(), "GET",
+     "/v1/nodes/earnings/projection", None, "key", None),
     # credits (convert and withdraw covered in test_signers)
     ("credits.balance", lambda c: c.credits.balance(), "GET", "/v1/credits", None, "key", None),
     ("credits.transactions", lambda c: c.credits.transactions(limit=50, cursor="123", type="earn"), "GET",
@@ -143,7 +147,7 @@ def _check(rec: Recorder, method: str, path: str, body: Any, auth: str) -> None:
         assert r.headers["content-type"] == "application/json"
     expected = {"jwt": f"Bearer {ACCESS}", "key": f"Bearer {API_KEY}", "none": None}[auth]
     assert r.headers.get("authorization") == expected
-    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.4.0"
+    assert r.headers["user-agent"] == "dominusnode-sdk-python/2.5.0"
     assert r.headers["accept"] == "application/json"
 
 
@@ -213,7 +217,7 @@ def test_wallet_verify_stores_tokens_unless_mfa(rec: Recorder) -> None:
     assert c.is_connected
 
 
-def test_method_count_is_76() -> None:
+def test_method_count_is_77() -> None:
     from conftest import new_client
 
     c = new_client(Recorder())
@@ -223,7 +227,7 @@ def test_method_count_is_76() -> None:
     for n in names:
         core = type(getattr(c, n)).__mro__[1]
         total += len([m for m in vars(core) if not m.startswith("_") and m != "set_lookup"])
-    assert len(names) == 16 and total == 76
+    assert len(names) == 16 and total == 77
     for member in ("connect_with_key", "disconnect", "is_connected"):
         assert hasattr(c, member)
     for removed in ("plans", "slots", "admin", "connect_with_credentials", "complete_mfa"):
@@ -247,3 +251,12 @@ def test_proxy_tokens_create_wraps_secret_and_validates(rec: Recorder, client: A
     rec.add(200, {"id": U, "token": "dn_live_nope"})
     with pytest.raises(ProtocolError):
         client.proxy_tokens.create()
+
+
+def test_earnings_projection_validates_days(rec: Recorder, client: Any) -> None:
+    from dominusnode import ValidationError
+
+    for bad in (0, 31, True, 1.5):
+        with pytest.raises(ValidationError):
+            client.nodes.earnings_projection(days=bad)
+    assert rec.requests == []

@@ -19,7 +19,7 @@ import (
 
 const (
 	// SDKVersion is the SDK version.
-	SDKVersion = "2.4.0"
+	SDKVersion = "2.5.0"
 	// UserAgent is sent on every API request.
 	UserAgent = "dominusnode-sdk-go/" + SDKVersion
 	// DefaultBaseURL is the API server.
@@ -93,6 +93,7 @@ type Client struct {
 	Credits        *CreditsResource
 	PayoutWallet   *PayoutWalletResource
 	Payouts        *PayoutsResource
+	ProxyTokens    *ProxyTokensResource
 	Proxy          *ProxyResource
 
 	mu     sync.Mutex
@@ -127,6 +128,7 @@ func NewClient(cfg Config) (*Client, error) {
 	c.Credits = &CreditsResource{h}
 	c.PayoutWallet = &PayoutWalletResource{h}
 	c.Payouts = &PayoutsResource{h}
+	c.ProxyTokens = &ProxyTokensResource{h}
 	if c.Proxy, err = newProxyResource(h, cfg, c.key); err != nil {
 		return nil, err
 	}

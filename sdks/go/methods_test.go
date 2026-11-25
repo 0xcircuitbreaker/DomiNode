@@ -167,6 +167,18 @@ func TestEveryMethodRequest(t *testing.T) {
 			method: "PATCH", path: "/v1/nodes/" + id, body: `{"gbPerDay":10}`, auth: "agent"},
 		{name: "Nodes.Tier", call: func(x context.Context, c *Client) error { return e(c.Nodes.Tier(x)) },
 			method: "GET", path: "/v1/node/tier", auth: "agent"},
+		{name: "Nodes.EarningsProjection", call: func(x context.Context, c *Client) error { return e(c.Nodes.EarningsProjection(x, Int(14))) },
+			method: "GET", path: "/v1/nodes/earnings/projection", query: "days=14", auth: "agent"},
+		{name: "Nodes.EarningsProjection(default)", call: func(x context.Context, c *Client) error { return e(c.Nodes.EarningsProjection(x, nil)) },
+			method: "GET", path: "/v1/nodes/earnings/projection", auth: "agent"},
+		// proxyTokens (3)
+		{name: "ProxyTokens.Create", call: func(x context.Context, c *Client) error {
+			return e(c.ProxyTokens.Create(x, CreateProxyTokenOptions{Label: String("ci"), TTLSeconds: Int(3600), MaxBytes: Int64(1_000_000_000_000_000), MaxSpendMusd: Int64(5)}))
+		}, method: "POST", path: "/v1/proxy-tokens", body: `{"label":"ci","maxBytes":"1000000000000000","maxSpendMusd":"5","ttlSeconds":3600}`, auth: "agent"},
+		{name: "ProxyTokens.List", call: func(x context.Context, c *Client) error { return e(c.ProxyTokens.List(x)) },
+			method: "GET", path: "/v1/proxy-tokens", auth: "agent"},
+		{name: "ProxyTokens.Revoke", call: func(x context.Context, c *Client) error { return e(c.ProxyTokens.Revoke(x, id)) },
+			method: "DELETE", path: "/v1/proxy-tokens/" + id, auth: "agent"},
 		// credits (2 here; Convert and Withdraw in signer tests)
 		{name: "Credits.Balance", call: func(x context.Context, c *Client) error { return e(c.Credits.Balance(x)) },
 			method: "GET", path: "/v1/credits", auth: "agent"},
@@ -192,6 +204,9 @@ func TestEveryMethodRequest(t *testing.T) {
 			if resp == "" {
 				resp = `{}`
 			}
+			if tc.name == "ProxyTokens.Create" {
+				resp = `{"id":"` + id + `","token":"dn_proxy_` + strings.Repeat("A", 43) + `"}`
+			}
 			if strings.HasPrefix(tc.name, "Keys.Create") || strings.HasPrefix(tc.name, "Teams.CreateKey") {
 				resp = `{"id":"k","key":"` + testKey + `"}`
 			}
@@ -210,7 +225,7 @@ func TestEveryMethodRequest(t *testing.T) {
 			if (tc.body != "") != (r.Header.Get("Content-Type") == "application/json") {
 				t.Fatalf("Content-Type %q with body %q", r.Header.Get("Content-Type"), tc.body)
 			}
-			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.4.0" || r.Header.Get("Accept") != "application/json" {
+			if r.Header.Get("User-Agent") != "dominusnode-sdk-go/2.5.0" || r.Header.Get("Accept") != "application/json" {
 				t.Fatalf("bad UA/Accept: %v", r.Header)
 			}
 			got := r.Header.Get("Authorization")

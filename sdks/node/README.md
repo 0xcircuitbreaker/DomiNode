@@ -163,7 +163,7 @@ The gateway refuses the token once it is revoked, expired, or at a byte or spend
 | `sessions` | `getActive`, `report` |
 | `x402` | `getInfo` |
 | `network` | `policy`, `pricing`, `stats` |
-| `nodes` | `registerChallenge`, `register`, `list`, `revoke`, `updateCaps`, `tier` |
+| `nodes` | `registerChallenge`, `register`, `list`, `revoke`, `updateCaps`, `tier`, `earningsProjection` |
 | `credits` | `balance`, `transactions`, `convert`, `withdraw` |
 | `payoutWallet` | `get`, `set` |
 | `payouts` | `list` |

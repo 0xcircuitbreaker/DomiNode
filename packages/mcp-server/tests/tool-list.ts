@@ -72,6 +72,7 @@ export const AUTHENTICATED_TOOLS = [
   "dominusnode_node_list",
   "dominusnode_node_revoke",
   "dominusnode_node_tier",
+  "dominusnode_node_earnings_projection",
   "dominusnode_node_setup_guide",
   "dominusnode_credits_balance",
   "dominusnode_credits_transactions",

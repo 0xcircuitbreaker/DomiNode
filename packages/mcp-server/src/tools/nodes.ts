@@ -88,6 +88,24 @@ interface Req {
   met: boolean | null;
 }
 
+interface ProjectionView {
+  tier: { id: number | string; name: string; nodeShareBps: number; holdDays: number };
+  dailyMusd: string;
+  monthlyMusd: string;
+  windowMusd: string;
+}
+
+interface ProjectionResponse {
+  windowDays: number;
+  meteredBytes: string;
+  current: ProjectionView;
+  nextTier: ProjectionView | null;
+  topTier: ProjectionView;
+  byClass: Array<{ ipClass: string; bytes: string; pricePerGbMusd: string; tierWeight: number; dailyMusd: string; monthlyMusd: string }>;
+  maturity: { holdDays: number; firstWithdrawableDaysFromNow: number };
+  note: string;
+}
+
 interface TierResponse {
   tier: TierView;
   nextTier: TierView | null;
@@ -501,6 +519,43 @@ export function registerNodeTools(server: McpServer, httpClient: HttpClient, con
         } else {
           lines.push(``, `You are at the top tier.`);
         }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.tool(
+    "dominusnode_node_earnings_projection",
+    "Project your node-share earnings (GET /v1/nodes/earnings/projection): daily and 30-day estimates from your nodes' recent " +
+      "gateway-metered traffic at current prices, for your current tier, the next tier and the top tier, broken down by exit class. " +
+      "An estimate, not a guarantee; earnings become withdrawable only after the tier's hold.",
+    {
+      days: z.number().int().min(1).max(30).optional().describe("Look-back window in days (1-30, default 7)"),
+    },
+    async (args) => {
+      try {
+        const q = args.days === undefined ? "" : `?days=${args.days}`;
+        const p = await httpClient.request<ProjectionResponse>({
+          method: "GET", path: `/v1/nodes/earnings/projection${q}`, bearer: bearer(),
+        });
+        const pct = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
+        const view = (label: string, v: ProjectionView) =>
+          `${label}: ${v.tier.name} (${pct(v.tier.nodeShareBps)} share) — ${formatMusd(v.dailyMusd)}/day, ${formatMusd(v.monthlyMusd)}/30 days`;
+        const lines = [
+          `Earnings projection from the last ${p.windowDays} day(s): ${p.meteredBytes} gateway-metered bytes through your nodes`,
+          view("Current tier", p.current),
+        ];
+        if (p.nextTier) lines.push(view("Next tier", p.nextTier));
+        lines.push(view("Top tier", p.topTier));
+        if (p.byClass.length > 0) {
+          lines.push(``, `By exit class (current tier):`);
+          for (const c of p.byClass) {
+            lines.push(`  ${c.ipClass}: ${c.bytes} bytes at ${formatMusd(c.pricePerGbMusd)}/GB -> ${formatMusd(c.dailyMusd)}/day, ${formatMusd(c.monthlyMusd)}/30 days`);
+          }
+        }
+        lines.push(``, `Earnings hold: ${p.maturity.holdDays} days before they can be withdrawn.`, p.note);
         return { content: [{ type: "text", text: lines.join("\n") }] };
       } catch (err) {
         return errorResult(err);

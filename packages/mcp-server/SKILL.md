@@ -30,6 +30,10 @@ tools:
       max_gb_day: { type: number }
   - name: dominusnode_node_tier
     description: Current tier, share and progress to the next tier
+  - name: dominusnode_node_earnings_projection
+    description: Projected daily and 30-day node earnings from recent metered traffic
+    parameters:
+      days: { type: number }
 ---
 
 # DominusNode Relay Skill

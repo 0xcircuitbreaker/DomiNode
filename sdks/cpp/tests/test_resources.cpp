@@ -93,6 +93,10 @@ std::vector<Row> rows() {
         {"nodes.revoke", [](C c) { c.nodes.revoke(U); }, "DELETE", "/v1/nodes/" + U, nullptr, 'a'},
         {"nodes.update_caps", [](C c) { NodeCaps k; k.gb_per_day = 5; c.nodes.update_caps(U, k); }, "PATCH", "/v1/nodes/" + U, {{"gbPerDay", 5}}, 'a'},
         {"nodes.tier", [](C c) { c.nodes.tier(); }, "GET", "/v1/node/tier", nullptr, 'a'},
+        {"nodes.earnings_projection", [](C c) { c.nodes.earnings_projection(14); }, "GET", "/v1/nodes/earnings/projection?days=14", nullptr, 'a'},
+        // proxyTokens (2 here + create in proxy_tokens_create_* below)
+        {"proxy_tokens.list", [](C c) { c.proxy_tokens.list(); }, "GET", "/v1/proxy-tokens", nullptr, 'a'},
+        {"proxy_tokens.revoke", [](C c) { c.proxy_tokens.revoke(U); }, "DELETE", "/v1/proxy-tokens/" + U, nullptr, 'a'},
         // credits (2 here + convert, withdraw in test_signed)
         {"credits.balance", [](C c) { c.credits.balance(); }, "GET", "/v1/credits", nullptr, 'a'},
         {"credits.transactions", [](C c) { c.credits.transactions(50, std::string("123"), std::string("earn")); }, "GET", "/v1/credits/transactions?limit=50&cursor=123&type=earn", nullptr, 'a'},
@@ -110,9 +114,10 @@ std::vector<Row> rows() {
 
 TEST(every_method_sends_expected_request) {
     auto rs = rows();
-    // 73 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.convert,
-    // credits.withdraw, payout_wallet.set (test_signed) + proxy.build_username/build_url/fetch (test_proxy).
-    CHECK_EQ(rs.size() + 5 + 3, std::size_t(73));
+    // 77 methods = these rows + wallet_auth.sign_in, nodes.register_node, credits.convert,
+    // credits.withdraw, payout_wallet.set (test_signed) + proxy.build_username/build_url/fetch (test_proxy)
+    // + proxy_tokens.create (below).
+    CHECK_EQ(rs.size() + 5 + 3 + 1, std::size_t(77));
     for (const auto& r : rs) {
         Fixture f;
         try {
@@ -134,7 +139,7 @@ TEST(every_method_sends_expected_request) {
         std::string auth = Mock::header(q, "Authorization");
         std::string want = r.auth == 'n' ? "" : r.auth == 'j' ? "Bearer " + JWT : "Bearer " + KEY;
         if (auth != want) fail(ctx + "auth header '" + auth + "'", __FILE__, __LINE__);
-        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.4.0") fail(ctx + "user-agent", __FILE__, __LINE__);
+        if (Mock::header(q, "User-Agent") != "dominusnode-sdk-cpp/2.5.0") fail(ctx + "user-agent", __FILE__, __LINE__);
         if (Mock::header(q, "Accept") != "application/json") fail(ctx + "accept", __FILE__, __LINE__);
     }
 }
@@ -246,4 +251,57 @@ TEST(wallet_verify_mfa_stores_nothing) {
     f.mock.push(200, {{"token", JWT}, {"refreshToken", RT}, {"user", {{"id", "u"}}}});
     f.client->wallet_auth.verify(ADDR, SIG);
     CHECK(f.client->is_connected());
+}
+
+TEST(proxy_tokens_create_sends_caps_and_wraps_secret) {
+    Fixture f;
+    const std::string tok = "dn_proxy_" + std::string(43, 'A');
+    f.mock.push(200, {{"id", U}, {"status", "active"}, {"maxBytes", "1000000000000000"}, {"maxSpendMusd", "5"}, {"token", tok}});
+    CreateProxyTokenOptions o;
+    o.label = "ci";
+    o.ttl_seconds = 3600;
+    o.max_bytes = MusdInput(1000000000000000ULL);
+    o.max_spend_musd = MusdInput("5");
+    auto r = f.client->proxy_tokens.create(o);
+    const auto& q = f.mock.last();
+    CHECK_EQ(q.method, std::string("POST"));
+    CHECK_EQ(Mock::path(q), std::string("/v1/proxy-tokens"));
+    CHECK_EQ(Mock::body(q), json({{"label", "ci"}, {"ttlSeconds", 3600}, {"maxBytes", "1000000000000000"}, {"maxSpendMusd", "5"}}));
+    CHECK_EQ(Mock::header(q, "Authorization"), "Bearer " + KEY);
+    CHECK_EQ(r.token.reveal(), tok);
+    CHECK(!r.info.contains("token"));
+    CHECK_EQ(r.info["maxSpendMusd"].get<std::string>(), std::string("5"));
+    std::ostringstream os;
+    os << r.token;
+    CHECK(os.str().find(tok) == std::string::npos);
+    CHECK(json(r.token).dump().find(tok) == std::string::npos);
+    f.mock.push(200, {{"id", U}, {"token", tok}});
+    f.client->proxy_tokens.create();
+    CHECK_EQ(Mock::body(f.mock.last()), json::object());
+}
+
+TEST(proxy_tokens_create_refuses_malformed_token) {
+    for (const json& bad : {json("dn_live_x"), json("dn_proxy_" + std::string(42, 'A')), json("dn_proxy_" + std::string(43, '!')), json(nullptr)}) {
+        Fixture f;
+        f.mock.push(200, {{"id", U}, {"token", bad}});
+        CHECK_THROWS(f.client->proxy_tokens.create(), ProtocolError);
+    }
+}
+
+TEST(proxy_tokens_and_projection_validate_before_sending) {
+    Fixture f;
+    auto& c = *f.client;
+    auto with = [](auto set) { CreateProxyTokenOptions o; set(o); return o; };
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.label = std::string(65, 'x'); })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.label = std::string("a\nb"); })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.ttl_seconds = 59; })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.ttl_seconds = 31536001; })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.max_bytes = MusdInput(0); })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.max_bytes = MusdInput("1000000000000001"); })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.max_spend_musd = MusdInput("1.5"); })));
+    CHECK_INVALID(c.proxy_tokens.create(with([](auto& o) { o.max_spend_musd = MusdInput(10000000000001LL); })));
+    CHECK_INVALID(c.proxy_tokens.revoke("a/b"));
+    CHECK_INVALID(c.nodes.earnings_projection(0));
+    CHECK_INVALID(c.nodes.earnings_projection(31));
+    CHECK(f.mock.calls.empty());
 }

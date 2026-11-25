@@ -1,4 +1,4 @@
-"""The 16 resources (76 methods), each written once as sans-I/O generators.
+"""The 16 resources (77 methods), each written once as sans-I/O generators.
 
 ``make_variants`` turns each core class into a sync and an async resource class.
 Results are the server's JSON as dicts (camelCase keys, as on the wire); see types.py.
@@ -575,6 +575,12 @@ class _NodesResource(_Base):
 
     def tier(self) -> Gen:
         return (yield _get("/v1/node/tier", "agent"))
+
+    def earnings_projection(self, days: Optional[int] = None) -> Gen:
+        """Projected node-share earnings from the last ``days`` (1..30, server default 7). Money/bytes are integer strings."""
+        if days is not None:
+            validate_int_range(days, "days", 1, 30)
+        return (yield _get(f"/v1/nodes/earnings/projection{qs({'days': days})}", "agent"))
 
 
 # ---------------------------------------------------------------- 3.12 credits

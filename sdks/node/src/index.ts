@@ -32,7 +32,7 @@ export { NetworkResource } from "./resources/network.js";
 export type { NetworkPolicy, NetworkPricing, NetworkStats, NetworkGroupStats, NetworkStatus, StatusLevel, PublicIncident } from "./resources/network.js";
 export { NodesResource, EXIT_CLASSES, validatePageCursor } from "./resources/nodes.js";
 export type {
-  ExitClass, NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement,
+  ExitClass, NodeChallenge, RegisterNodeOptions, RegisteredNode, NodeInfo, NodeCaps, UpdateCapsResult, NodeTier, TierView, TierRequirement, EarningsProjection, ProjectionView,
 } from "./resources/nodes.js";
 export {
   CreditsResource, PayoutsResource, CREDIT_TX_TYPES, CURSOR_RE, newIdempotencyKey,

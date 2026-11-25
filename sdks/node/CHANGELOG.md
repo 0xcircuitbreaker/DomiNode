@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-25
+
+Additive release (SDK surface: 16 resources, 77 methods).
+
 ### Added
 
+- `nodes.earningsProjection(days?)`: `GET /v1/nodes/earnings/projection` (days 1..30, server default 7), typed `EarningsProjection`.
 - `proxyTokens.create/list/revoke`: scoped, revocable `dn_proxy_` proxy tokens with expiry and byte/spend caps; the token is returned once in a `Secret`.
 - `proxy.startForwarder()`: loopback HTTP proxy for browsers that relays over TLS 1.3 to the gateway and injects the key; per-start token required unless `allowTokenless`.
 

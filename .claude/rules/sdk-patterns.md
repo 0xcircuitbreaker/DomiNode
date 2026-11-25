@@ -4,8 +4,8 @@ These rules apply when working on any of the 6 SDKs (sdks/node, sdks/python, sdk
 
 ## Cross-SDK Requirements
 
-- Source of truth: `sdks/SDK_SURFACE.md` (v2). All SDKs expose its 15 resources / 71 methods
-- Required: auth, walletAuth, keys, wallet (crypto top-up only), agenticWallets, teams (18 incl. revokeKey), usage, sessions (getActive + report), x402, network, nodes, credits, payoutWallet, payouts, proxy
+- Source of truth: `sdks/SDK_SURFACE.md` (v2). All SDKs expose its 16 resources / 77 methods
+- Required: auth, walletAuth, keys, wallet (crypto top-up only), agenticWallets, teams (18 incl. revokeKey), usage, sessions (getActive + report), x402, network, nodes, credits, payoutWallet, payouts, proxy, proxyTokens
 - Removed: plans, slots/waitlist, admin, Stripe/PayPal, email/password + human MFA flows, dc-/residential- prefixes, hardcoded prices
 - /v1 routes authenticate with the raw API key (agent mode); /api routes with the JWT
 - Signed flows (node register, withdraw, payout wallet) take a caller signer callback; SDK rebuilds the message and refuses (ProtocolError) if the server text differs, before calling the signer

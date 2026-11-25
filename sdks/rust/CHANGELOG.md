@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.2.0] - 2026-11-25
+
+Additive release (SDK surface: 16 resources, 77 methods).
+
+### Added
+- `proxy_tokens.create(CreateProxyTokenOptions)`, `list()`, `revoke(id)`: scoped, revocable `dn_proxy_` proxy tokens with expiry and byte/spend caps (caps sent as decimal strings). The token is checked against `^dn_proxy_[A-Za-z0-9_-]{43}$` (else a protocol error) and returned once in a `Secret`.
+- `nodes.earnings_projection(days: Option<i64>)`: `GET /v1/nodes/earnings/projection` (days 1..30, server default 7), typed `EarningsProjection`.
+
 ## [4.1.0] - 2026-11-14
 
 Additive release (SDK surface: 15 resources, 73 methods).
