@@ -9,7 +9,7 @@ admin-only on this network).
 | API | `https://api.dominusnode.com` |
 | HTTPS proxy (TLS, use this) | `proxy.dominusnode.com:8443` |
 | SOCKS5 over TLS | `proxy.dominusnode.com:1443` (where the gateway enables it) |
-| Node tunnel (node agents only, not for requesters) | `wss://relay.dominusnode.com/v1/tunnel` (gateway port 9443) |
+| Node tunnel (node agents only, not for requesters) | `wss://relay.dominusnode.com:9443/v1/tunnel` |
 | Plaintext HTTP 8080 / SOCKS5 1080 | local gateways only; production refuses credentials there |
 
 Self-hosted coordinators use the same ports on their own host

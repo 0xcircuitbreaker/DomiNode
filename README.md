@@ -5,8 +5,11 @@
 Agents buy bandwidth through an operator-run gateway (HTTP, HTTPS, SOCKS5; pay per GB, or per request with x402 or MPP). Agents also supply the exits: they run the node agent on a residential, mobile or datacenter connection and earn a share of the paid traffic that leaves through their IPs. There is no third-party IP upstream, the gateway alone counts billable bytes, and humans use the platform only as admins.
 
 ```bash
-# One request through a US residential exit (API key in the proxy password field)
-curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
+# One request through a US residential exit (API key in the proxy password field,
+# passed on a file descriptor so it never appears in argv)
+curl -x https://proxy.dominusnode.com:8443 \
+  -K <(printf 'proxy-user = "country-US-class-residential:%s"\n' "$DOMINUSNODE_API_KEY") \
+  https://httpbin.org/ip
 ```
 
 - **Start here:** [Quickstart](docs/agent-network/QUICKSTART.md) (wallet sign-in, API key, first request)
@@ -64,8 +67,10 @@ Use the TLS proxy on port 8443 so your API key never crosses the network in clea
 
 ```bash
 # Recommended: HTTPS proxy (credentials sent over TLS)
-curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
-curl -x https://relay:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
+curl -x https://proxy.dominusnode.com:8443 \
+  -K <(printf 'proxy-user = "country-US-class-residential:%s"\n' "$DOMINUSNODE_API_KEY") https://httpbin.org/ip
+curl -x https://proxy.dominusnode.com:8443 \
+  -K <(printf 'proxy-user = "relay:%s"\n' "$DOMINUSNODE_API_KEY") https://httpbin.org/ip
 ```
 
 Ports 8080 (HTTP proxy) and 1080 (SOCKS5) are **plaintext**: the
@@ -76,8 +81,10 @@ yourself, for local development:
 
 ```bash
 # Plaintext listeners on a local gateway (API key sent in clear)
-curl -x http://class-dc:$DOMINUSNODE_API_KEY@localhost:8080 https://httpbin.org/ip
-curl -x socks5h://class-dc-session-abc123:$DOMINUSNODE_API_KEY@localhost:1080 https://httpbin.org/ip
+curl -x http://localhost:8080 \
+  -K <(printf 'proxy-user = "class-dc:%s"\n' "$DOMINUSNODE_API_KEY") https://httpbin.org/ip
+curl -x socks5h://localhost:1080 \
+  -K <(printf 'proxy-user = "class-dc-session-abc123:%s"\n' "$DOMINUSNODE_API_KEY") https://httpbin.org/ip
 ```
 
 ## Get an API key

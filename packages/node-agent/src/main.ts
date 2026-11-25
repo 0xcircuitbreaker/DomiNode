@@ -17,7 +17,7 @@ import { reportTlsCapability } from "./shared.js";
 import { selfcheckCommand } from "./cli.js";
 import { startSelfDiscovery, type SelfDiscoveryOptions } from "./self-discovery.js";
 
-export const AGENT_VERSION = "0.1.0";
+export const AGENT_VERSION = "0.1.2";
 const SECRET_FLAGS = new Set(["api-key", "key", "node-key", "wallet-key", "private-key", "password", "token"]);
 
 export function parseFlags(argv: readonly string[]): FlagMap {

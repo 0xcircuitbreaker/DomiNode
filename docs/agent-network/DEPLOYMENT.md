@@ -518,6 +518,13 @@ The key file must be owned by uid 1001 with mode 0600 (the agent refuses group/w
 
 `.github/workflows/node-image.yml` publishes `ghcr.io/0xcircuitbreaker/dominusnode-node` for linux/amd64 and linux/arm64 (Raspberry Pi 4/5) on a `node-v*` tag or manual dispatch. The official coordinator pins come from the repository variable `DN_COORD_PUBKEYS` (public keys) and are baked in at build time; the job fails without them. A node pointed at another coordinator adds that coordinator's pins with `DN_NODE_COORD_PINS`.
 
+Current release: `ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.2` (tag `node-v0.1.2`). The official network signs with two keys, the coordinator key and the gateway VPS key, so `DN_COORD_PUBKEYS` must list both (`<coordinator>,<gateway VPS>`, the same keys `coordinator.json` publishes under `coordinator_keys`):
+
+| Role | Public key | Fingerprint |
+|---|---|---|
+| Coordinator | `1dc585c45f281cb1df3ebb0280549bf57a14a6cbf7dea1086183760a622cd66c` | `sha256:a78bb894db2b39a0125c3acf35b7543d6de7c06e2940e094e58384e96d14ec87` |
+| Gateway VPS | `89880f187cc6066c25fb1dc24ba4f692cb949df18e51ab00d9ae0e75e7ea75a1` | `sha256:ac77df18f9674a6874fcc54c89a6acde360fa904d96077db9bbd1781ae9f7922` |
+
 First run, `register` subcommand (once; writes the node key file 0600 for uid 1001):
 ```bash
 sudo install -d -o 1001 -g 1001 -m 700 /etc/dominusnode
@@ -1132,7 +1139,12 @@ start without it; `preflight.sh` checks it too.
    Nodes already running confirm both with `--trust sha256:<home>,sha256:<vps>`
    (printed by the installer). Until a node trusts the VPS key it refuses the
    gateway's CHALLENGE.
-9. Compare the pepper and JWT check values printed on both boxes.
+9. **Official branding.** `coordinator.json` uses the official site and
+   operator names only when its signer is in `OFFICIAL_COORD_PUBKEYS`; when it
+   is unset the document brands itself `DominusNode-compatible relay`. On the
+   hosted network set `OFFICIAL_COORD_PUBKEYS=<home>,<vps>` on both boxes (the
+   installer keeps it in `.env`) and restart the api.
+10. Compare the pepper and JWT check values printed on both boxes.
 
 ### Monitoring and alerts
 

@@ -32,6 +32,6 @@ describe("public pages", () => {
   it("run-a-node names the pinned node image", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<MemoryRouter><RunNodePage /></MemoryRouter>);
-    expect(document.body.textContent).toContain("ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.1");
+    expect(document.body.textContent).toContain("ghcr.io/0xcircuitbreaker/dominusnode-node:0.1.2");
   });
 });

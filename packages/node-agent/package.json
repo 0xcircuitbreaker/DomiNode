@@ -1,6 +1,6 @@
 {
   "name": "@dominusnode/node-agent",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "DomiNode relay node agent: dials out to the gateway and serves floor-checked TCP streams",
   "main": "dist/src/index.js",

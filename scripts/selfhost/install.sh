@@ -297,6 +297,14 @@ if [ "$ROLE_SEL" = coordinator ]; then
   if [ -n "$GW_PUB" ]; then hex64 "$GW_PUB" || die "GATEWAY_PUBKEY must be a 64-hex public key"; fi
 fi
 
+# Keys that get the official site/operator names (resolveBranding). Kept from
+# .env or the environment; each entry must be a 64-hex public key.
+OFFICIAL_KEYS="${OFFICIAL_COORD_PUBKEYS:-$(env_get OFFICIAL_COORD_PUBKEYS)}"
+OFFICIAL_KEYS="${OFFICIAL_KEYS// /}"
+if [ -n "$OFFICIAL_KEYS" ]; then
+  IFS=, read -r -a _ok <<<"$OFFICIAL_KEYS"
+  for k in "${_ok[@]}"; do hex64 "$k" || die "OFFICIAL_COORD_PUBKEYS must be comma-separated 64-hex public keys"; done
+fi
 CONTACT_DEFAULT="${OPERATOR_CONTACT:-$(env_get OPERATOR_CONTACT)}"
 CONTACT="$(ask "Operator/abuse contact email (required for ACME and abuse reports)" "$CONTACT_DEFAULT")"
 if [ "$TLS" = auto ] && [ -z "$CONTACT" ]; then die "TLS mode auto needs a contact email for ACME"; fi
@@ -388,7 +396,7 @@ if [ -n "$DNS_FILE" ]; then env_set CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"; else 
 if [ "$ROLE_SEL" != gateway ]; then GW_DB_URL=""; HOME_PUB=""; fi
 env_set GATEWAY_DATABASE_URL "$GW_DB_URL"; env_set COORD_PUBKEY "$HOME_PUB"
 env_set DB_WG_BIND "$DB_WG"; env_set GATEWAY_PUBKEY "$GW_PUB"; env_set COORD_ADDITIONAL_PUBKEYS "$GW_PUB"
-env_set OPERATOR_CONTACT "$CONTACT"
+env_set OPERATOR_CONTACT "$CONTACT"; env_set OFFICIAL_COORD_PUBKEYS "$OFFICIAL_KEYS"
 env_set ABUSE_CONTACT "$ABUSE"; env_set OPERATOR_NAME "$OPNAME"; env_set SITE_NAME "$SITENAME"
 env_set ADMIN_HUMAN_LOGIN "${ADMIN_LOGIN:-false}"; env_set ADMIN_BOOTSTRAP_EMAIL "$ADMIN_EMAIL"
 # One-time secret the first-admin registration must present: the address alone
