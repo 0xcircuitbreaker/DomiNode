@@ -44,6 +44,11 @@ module.exports = tseslint.config(
     },
   },
   {
+    files: ["scripts/loadtest/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+    rules: { "no-control-regex": "off", "no-empty": ["error", { allowEmptyCatch: true }] },
+  },
+  {
     files: ["packages/{frontend,extension}/src/**/*.{ts,tsx}"],
     languageOptions: { globals: { ...globals.browser, chrome: "readonly" } },
   },

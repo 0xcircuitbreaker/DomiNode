@@ -9,6 +9,7 @@ Build, deployment, backup and testing scripts.
 - `update-asn-db.sh` — Refresh the ASN database used for node IP classification
 - `backup.sh` / `restore.sh` — Database backup/restore
 - `e2e-test.sh` — End-to-end testing
+- `loadtest/loadtest.mjs` (`npm run loadtest`) — Gateway load/soak harness (CONNECT + SOCKS5, mock nodes, latency/RSS/fd/metering report); local targets only unless `--allow-remote`; keys from `DN_LOADTEST_*` env only. Procedure: docs/agent-network/CAPACITY.md
 - `quickstart-smoke.sh` — Five-minute agent quickstart check (policy, pricing, balance, fetch via the TLS proxy on 8443); key from `DOMINUSNODE_API_KEY` only
 
 ## Rules

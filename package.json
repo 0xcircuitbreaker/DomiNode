@@ -10,7 +10,7 @@
     "start:proxy": "node packages/proxy-gateway/dist/src/main.js",
     "start:api": "node packages/dashboard/dist/src/main.js",
     "db:migrate": "node packages/shared/dist/src/migrate.js",
-    "lint": "eslint packages/*/src",
+    "lint": "eslint packages/*/src scripts/loadtest",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "format": "prettier --write 'packages/*/src/**/*.ts'",
@@ -21,7 +21,8 @@
     "export:policy": "node scripts/export-signed-policy.mjs",
     "docs:env": "node scripts/docs/env-reference.mjs",
     "docs:env:check": "node scripts/docs/env-reference.mjs --check",
-    "admin:set-root": "node scripts/set-root-admin.mjs"
+    "admin:set-root": "node scripts/set-root-admin.mjs",
+    "loadtest": "node scripts/loadtest/loadtest.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
