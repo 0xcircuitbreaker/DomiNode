@@ -11,6 +11,7 @@ import {
   isExitClass,
   tierWeightBpsFor,
   killSwitches,
+  RELAY_BYTES_PER_GB,
   type ExitClass,
 } from "@dominusnode/shared";
 import { sendKillSwitchBlock } from "../../helpers/kill-switch.js";
@@ -391,6 +392,134 @@ router.get("/node/tier", async (req: Request, res: Response) => {
   } catch (err) {
     log.error("tier lookup failed", { error: err instanceof Error ? err.message : String(err) });
     res.status(503).json({ error: "Tier lookup failed" });
+  }
+});
+
+// ─── Earnings projection ─────────────────────────────────────────────
+
+const PROJECTION_BYTES_PER_GB = BigInt(RELAY_BYTES_PER_GB);
+const MAX_SHARE_BPS = 5000n;
+
+export interface ProjectionClassInput {
+  ipClass: string;
+  /** Gateway-metered bytes for the caller's nodes in the window. */
+  bytes: bigint;
+}
+
+export interface ProjectionInput {
+  windowDays: number;
+  traffic: ProjectionClassInput[];
+  /** µUSD per GB from network_pricing, by class (missing class -> highest price is NOT used; see priceFor). */
+  pricing: Map<string, bigint>;
+  shareBps: number;
+}
+
+/**
+ * Price a class's traffic is projected at: its own network_pricing row, else
+ * the 'any' row, else 0 (no projection rather than an invented price).
+ * Projections err low; billing (getPricing) errs high.
+ */
+export function projectionPriceFor(ipClass: string, pricing: Map<string, bigint>): bigint {
+  return pricing.get(ipClass) ?? pricing.get("any") ?? 0n;
+}
+
+/** Node-share µUSD for `bytes` at `pricePerGb` and `shareBps` (floored, integer). */
+export function nodeShareMusd(bytes: bigint, pricePerGbMusd: bigint, shareBps: number): bigint {
+  if (bytes <= 0n || pricePerGbMusd <= 0n || shareBps <= 0) return 0n;
+  const bps = BigInt(Math.min(Math.max(Math.trunc(shareBps), 0), Number(MAX_SHARE_BPS)));
+  return (bytes * pricePerGbMusd * bps) / (PROJECTION_BYTES_PER_GB * 10_000n);
+}
+
+/**
+ * Projects daily and 30-day node earnings from the window's metered bytes,
+ * the configured prices and a tier share. All results are integer µUSD.
+ */
+export function projectEarnings(input: ProjectionInput) {
+  const days = BigInt(Math.max(1, Math.trunc(input.windowDays)));
+  let windowMusd = 0n;
+  const byClass = input.traffic.map((t) => {
+    const price = projectionPriceFor(t.ipClass, input.pricing);
+    const musd = nodeShareMusd(t.bytes, price, input.shareBps);
+    windowMusd += musd;
+    return { ipClass: t.ipClass, bytes: t.bytes, pricePerGbMusd: price, windowMusd: musd, dailyMusd: musd / days, monthlyMusd: (musd * 30n) / days };
+  });
+  return { windowMusd, dailyMusd: windowMusd / days, monthlyMusd: (windowMusd * 30n) / days, byClass };
+}
+
+// GET /v1/nodes/earnings/projection?days=7 — projected node-share earnings
+router.get("/nodes/earnings/projection", async (req: Request, res: Response) => {
+  const agent = principal(req);
+  const rawDays = req.query["days"];
+  const windowDays = rawDays === undefined ? 7 : Number(rawDays);
+  if (!Number.isInteger(windowDays) || windowDays < 1 || windowDays > 30) {
+    res.status(400).json({ error: "days must be an integer between 1 and 30" });
+    return;
+  }
+  try {
+    const [current, tiers, pricingRows, weights, traffic] = await Promise.all([
+      tierRepo.getOwnerTier(agent.userId),
+      tierRepo.listTiers(),
+      policyRepo.listPricing(),
+      loadTierWeights(),
+      // Only gateway-metered bytes count (bytes_gateway); node-reported bytes are ignored.
+      query<{ ip_class: string | null; bytes: string }>(
+        `SELECT n.ip_class, COALESCE(SUM(rc.bytes_gateway), 0)::text AS bytes
+         FROM relay_charges rc
+         JOIN nodes n ON n.id = rc.node_id
+         WHERE rc.node_owner_user_id = $1
+           AND n.owner_user_id = $1
+           AND rc.created_at >= now() - make_interval(days => $2)
+           AND rc.zero_reason IS NULL
+           AND NOT rc.disputed
+         GROUP BY n.ip_class`,
+        [agent.userId, windowDays],
+      ),
+    ]);
+    if (pricingRows.length === 0) {
+      res.status(503).json({ error: "Network pricing not configured" });
+      return;
+    }
+    const pricing = new Map<string, bigint>(pricingRows.map((p) => [p.ipClass, p.pricePerGbMusd]));
+    const trafficIn = traffic.rows.map((r) => ({ ipClass: r.ip_class ?? "unknown", bytes: BigInt(r.bytes) }));
+    const sorted = [...tiers].sort((a, b) => a.rank - b.rank);
+    const next = sorted.find((t) => t.rank > current.rank) ?? null;
+    const top = sorted[sorted.length - 1] ?? current;
+    const view = (t: typeof current) => {
+      const p = projectEarnings({ windowDays, traffic: trafficIn, pricing, shareBps: t.nodeShareBps });
+      return {
+        tier: { id: t.id, name: t.name, nodeShareBps: t.nodeShareBps, holdDays: t.holdDays },
+        dailyMusd: p.dailyMusd.toString(),
+        monthlyMusd: p.monthlyMusd.toString(),
+        windowMusd: p.windowMusd.toString(),
+      };
+    };
+    const cur = projectEarnings({ windowDays, traffic: trafficIn, pricing, shareBps: current.nodeShareBps });
+    const totalBytes = trafficIn.reduce((a, t) => a + t.bytes, 0n);
+    res.json({
+      windowDays,
+      meteredBytes: totalBytes.toString(),
+      current: view(current),
+      nextTier: next ? view(next) : null,
+      topTier: view(top),
+      byClass: cur.byClass.map((c) => ({
+        ipClass: c.ipClass,
+        bytes: c.bytes.toString(),
+        pricePerGbMusd: c.pricePerGbMusd.toString(),
+        tierWeight: weightOf(c.ipClass, weights),
+        dailyMusd: c.dailyMusd.toString(),
+        monthlyMusd: c.monthlyMusd.toString(),
+      })),
+      pricing: Object.fromEntries(pricingRows.map((p) => [p.ipClass, p.pricePerGbMusd.toString()])),
+      maturity: {
+        // Earnings credit at session start but become withdrawable only after the hold.
+        holdDays: current.holdDays,
+        firstWithdrawableDaysFromNow: current.holdDays,
+      },
+      note: "Projection from recent gateway-metered traffic at current prices; not a guarantee. Tier weights affect tier progress, not per-GB earnings.",
+    });
+  } catch (err) {
+    log.error("earnings projection failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(503).json({ error: "Earnings projection failed" });
   }
 });
 

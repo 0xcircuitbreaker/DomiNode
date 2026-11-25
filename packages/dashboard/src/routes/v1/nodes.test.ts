@@ -21,6 +21,7 @@ const m = vi.hoisted(() => ({
   powConsume: vi.fn(),
   powCount: vi.fn(),
   getActivePolicy: vi.fn(),
+  listPricing: vi.fn(),
   getOwnerTier: vi.fn(),
   listTiers: vi.fn(),
   getOwnerTierStats: vi.fn(),
@@ -42,7 +43,7 @@ vi.mock("@dominusnode/shared", async (importOriginal) => {
     query: (...a: unknown[]) => m.query(...a),
     nodeRepo: { createChallenge: m.createChallenge, consumeChallenge: m.consumeChallenge, registerNode: m.registerNode, listForOwner: m.listForOwner, revokeOwnedNode: m.revokeOwnedNode },
     powChallengeRepo: { createChallenge: m.powCreate, consumeChallenge: m.powConsume, countActiveChallengesForIp: m.powCount, POW_CHALLENGE_TTL_MS: 300000 },
-    policyRepo: { getActivePolicy: m.getActivePolicy },
+    policyRepo: { getActivePolicy: m.getActivePolicy, listPricing: m.listPricing },
     tierRepo: { getOwnerTier: m.getOwnerTier, listTiers: m.listTiers, getOwnerTierStats: m.getOwnerTierStats, getTierWeights: m.getTierWeights },
   };
 });
@@ -381,5 +382,92 @@ describe("/v1 node routes", () => {
       m.query.mockResolvedValue({ rows: [] });
       expect((await call(app(), "GET", "/v1/node/tier")).status).toBe(503);
     });
+  });
+});
+
+describe("earnings projection math", () => {
+  const GB = 1_000_000_000n;
+  it("computes node share in integer µUSD and floors", () => {
+    expect(mod.nodeShareMusd(GB, 500_000n, 2500)).toBe(125_000n);
+    expect(mod.nodeShareMusd(GB, 500_000n, 5000)).toBe(250_000n);
+    expect(mod.nodeShareMusd(1n, 500_000n, 2500)).toBe(0n);
+    expect(mod.nodeShareMusd(0n, 500_000n, 2500)).toBe(0n);
+  });
+  it("caps share at 50%", () => {
+    expect(mod.nodeShareMusd(GB, 500_000n, 9000)).toBe(250_000n);
+  });
+  it("prices by class, then 'any', never invents a price", () => {
+    const pricing = new Map([["residential", 500_000n], ["any", 200_000n]]);
+    expect(mod.projectionPriceFor("residential", pricing)).toBe(500_000n);
+    expect(mod.projectionPriceFor("unknown", pricing)).toBe(200_000n);
+    expect(mod.projectionPriceFor("dc", new Map())).toBe(0n);
+  });
+  it("scales the window to daily and 30-day figures", () => {
+    const p = mod.projectEarnings({
+      windowDays: 7,
+      traffic: [{ ipClass: "residential", bytes: 7n * GB }, { ipClass: "dc", bytes: 14n * GB }],
+      pricing: new Map([["residential", 500_000n], ["dc", 200_000n]]),
+      shareBps: 2500,
+    });
+    // residential 7 GB * 0.5 * 0.25 = 875_000; dc 14 GB * 0.2 * 0.25 = 700_000
+    expect(p.windowMusd).toBe(1_575_000n);
+    expect(p.dailyMusd).toBe(225_000n);
+    expect(p.monthlyMusd).toBe(6_750_000n);
+    expect(p.byClass[1]).toMatchObject({ ipClass: "dc", windowMusd: 700_000n, dailyMusd: 100_000n });
+  });
+});
+
+describe("GET /v1/nodes/earnings/projection", () => {
+  const tiers = [tier(1, "probation", 0), tier(2, "bronze", 1), tier(6, "partner", 5)];
+  beforeEach(() => {
+    vi.resetAllMocks();
+    m.getOwnerTier.mockResolvedValue({ ...tiers[0], holdDays: 14 });
+    m.listTiers.mockResolvedValue(tiers);
+    m.getTierWeights.mockResolvedValue({ residential: 10000, mobile: 10000, dc: 4000, masked: 2500 });
+    m.listPricing.mockResolvedValue([
+      { ipClass: "any", pricePerGbMusd: 200_000n, tierWeightBps: 10000 },
+      { ipClass: "residential", pricePerGbMusd: 500_000n, tierWeightBps: 10000 },
+      { ipClass: "dc", pricePerGbMusd: 200_000n, tierWeightBps: 4000 },
+    ]);
+  });
+
+  it("projects current, next and top tier from metered traffic", async () => {
+    m.query.mockResolvedValue({ rows: [{ ip_class: "residential", bytes: "7000000000" }, { ip_class: "dc", bytes: "14000000000" }] });
+    const r = await call(app(), "GET", "/v1/nodes/earnings/projection");
+    expect(r.status).toBe(200);
+    expect(r.body["windowDays"]).toBe(7);
+    expect(r.body["meteredBytes"]).toBe("21000000000");
+    expect(r.body["current"]).toMatchObject({ dailyMusd: "225000", monthlyMusd: "6750000", tier: { name: "probation", nodeShareBps: 2500 } });
+    expect(r.body["nextTier"]).toMatchObject({ tier: { name: "bronze", nodeShareBps: 3000 }, dailyMusd: "270000" });
+    expect(r.body["topTier"]).toMatchObject({ tier: { name: "partner", nodeShareBps: 5000 }, dailyMusd: "450000" });
+    expect(r.body["maturity"]).toMatchObject({ holdDays: 14 });
+    const byClass = r.body["byClass"] as Array<Record<string, unknown>>;
+    expect(byClass.find((c) => c["ipClass"] === "dc")).toMatchObject({ tierWeight: 0.4, pricePerGbMusd: "200000" });
+    const [sql, params] = m.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).not.toMatch(/\*/);
+    expect(sql).toMatch(/bytes_gateway/);
+    expect(params).toEqual([USER, 7]);
+  });
+
+  it("returns zeros with no traffic", async () => {
+    m.query.mockResolvedValue({ rows: [] });
+    const r = await call(app(), "GET", "/v1/nodes/earnings/projection?days=30");
+    expect(r.status).toBe(200);
+    expect(r.body["current"]).toMatchObject({ dailyMusd: "0", monthlyMusd: "0" });
+  });
+
+  it("rejects a bad window", async () => {
+    for (const d of ["0", "31", "abc", "1.5"]) {
+      expect((await call(app(), "GET", `/v1/nodes/earnings/projection?days=${d}`)).status).toBe(400);
+    }
+    expect(m.query).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without pricing or on lookup failure", async () => {
+    m.query.mockResolvedValue({ rows: [] });
+    m.listPricing.mockResolvedValue([]);
+    expect((await call(app(), "GET", "/v1/nodes/earnings/projection")).status).toBe(503);
+    m.getOwnerTier.mockRejectedValue(new Error("db"));
+    expect((await call(app(), "GET", "/v1/nodes/earnings/projection")).status).toBe(503);
   });
 });

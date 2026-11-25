@@ -14,7 +14,7 @@ import { buildAttestationMessage } from "@dominusnode/shared";
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_ATTESTATION_TEXT = 20_000;
 const HEX64 = /^[0-9a-f]{64}$/;
-const NODE_KEY_RE = /^dn_node_[0-9a-f]{64}$/;
+export const NODE_KEY_RE = /^dn_node_[0-9a-f]{64}$/;
 const UUIDISH = /^[A-Za-z0-9-]{1,64}$/;
 
 export interface StoredNode {
