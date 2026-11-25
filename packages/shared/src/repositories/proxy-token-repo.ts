@@ -230,3 +230,134 @@ export async function recordUsage(id: string, bytes: bigint, spendMusd: bigint):
   );
   return { withinCaps: false, exhausted: true };
 }
+
+// ─── Session-start budget reservation ─────────────────────────────────
+// Caps are enforced per session, not only at settlement: a session reserves
+// its share of the token's remaining budget when it starts (held in
+// bytes_used / spend_used_musd under the row lock, so concurrent sessions on
+// any gateway cannot together pass a cap) and the gateway cuts the stream at
+// the granted bytes. Settlement replaces the reservation with the metered
+// usage. A gateway crash leaves the reservation counted (fails closed).
+
+const RELAY_BYTES_PER_GB_BIG = 1_000_000_000n;
+
+export interface TokenGrant {
+  /** Bytes this session may carry (0 < bytes <= requested). */
+  bytes: bigint;
+  /** µUSD reserved against the spend cap for those bytes. */
+  spendMusd: bigint;
+}
+
+/**
+ * Pure grant computation from a locked row. `fixedSpendMusd` is set for
+ * prepaid (x402/MPP) sessions, whose spend is the paid amount whatever the
+ * bytes. Returns null when no byte can be granted.
+ */
+export function computeGrant(
+  t: Pick<ProxyToken, "maxBytes" | "maxSpendMusd" | "bytesUsed" | "spendUsedMusd">,
+  wantBytes: bigint,
+  pricePerGbMusd: bigint,
+  fixedSpendMusd?: bigint | null,
+): TokenGrant | null {
+  if (wantBytes <= 0n) return null;
+  let bytes = wantBytes;
+  if (t.maxBytes !== null) {
+    const rem = t.maxBytes - t.bytesUsed;
+    if (rem < bytes) bytes = rem;
+  }
+  if (bytes <= 0n) return null;
+  const remSpend = t.maxSpendMusd === null ? null : t.maxSpendMusd - t.spendUsedMusd;
+  if (fixedSpendMusd !== undefined && fixedSpendMusd !== null) {
+    // A prepaid session has already been priced for wantBytes: never take the
+    // full payment for fewer bytes than it bought. Refuse instead.
+    if (bytes < wantBytes) return null;
+    if (remSpend !== null && remSpend < fixedSpendMusd) return null;
+    return { bytes, spendMusd: fixedSpendMusd < 0n ? 0n : fixedSpendMusd };
+  }
+  if (pricePerGbMusd > 0n && remSpend !== null) {
+    if (remSpend <= 0n) return null;
+    // floor, so ceil(bytes × price) never exceeds the remaining spend
+    const bySpend = (remSpend * RELAY_BYTES_PER_GB_BIG) / pricePerGbMusd;
+    if (bySpend < bytes) bytes = bySpend;
+    if (bytes <= 0n) return null;
+  }
+  const spendMusd = pricePerGbMusd > 0n ? (pricePerGbMusd * bytes + RELAY_BYTES_PER_GB_BIG - 1n) / RELAY_BYTES_PER_GB_BIG : 0n;
+  return { bytes, spendMusd };
+}
+
+/**
+ * Reserve a session's budget from a token at session start. Locks the row,
+ * requires it unrevoked and unexpired, grants at most `wantBytes` within the
+ * remaining byte and spend budget and adds the grant to the used counters.
+ * Returns null when the token cannot carry the session (refuse it).
+ */
+export async function reserveSessionBudget(
+  id: string,
+  wantBytes: bigint,
+  pricePerGbMusd: bigint,
+  fixedSpendMusd?: bigint | null,
+): Promise<TokenGrant | null> {
+  if (!UUID_RE.test(id)) return null;
+  const want = wantBytes > MAX_TOKEN_BYTES ? MAX_TOKEN_BYTES : wantBytes;
+  return withTx(async (client) => {
+    const r = await client.query<Row>(
+      `SELECT ${COLS} FROM proxy_tokens
+       WHERE id = $1 AND revoked_at IS NULL AND expires_at > now()
+       FOR UPDATE`,
+      [id],
+    );
+    if (!r.rows[0]) return null;
+    const g = computeGrant(toToken(r.rows[0]), want, pricePerGbMusd, fixedSpendMusd);
+    if (!g) return null;
+    const u = await client.query<{ id: string }>(
+      `UPDATE proxy_tokens
+         SET bytes_used = bytes_used + $2::bigint, spend_used_musd = spend_used_musd + $3::bigint
+       WHERE id = $1
+         AND bytes_used + $2::bigint <= COALESCE(max_bytes, ${MAX_TOKEN_BYTES.toString()})
+         AND spend_used_musd + $3::bigint <= COALESCE(max_spend_musd, ${MAX_TOKEN_SPEND_MUSD.toString()})
+       RETURNING id`,
+      [id, g.bytes.toString(), g.spendMusd.toString()],
+    );
+    return u.rows.length === 1 ? g : null;
+  });
+}
+
+/**
+ * Replace a session's reservation with its metered usage: used counters move
+ * by (actual - grant), floored at 0 and saturated at the caps. Returns whether
+ * the token is now exhausted.
+ */
+export async function settleSessionBudget(id: string, grant: TokenGrant, actualBytes: bigint, actualSpendMusd: bigint): Promise<{ exhausted: boolean }> {
+  if (!UUID_RE.test(id)) return { exhausted: true };
+  const clamp = (v: bigint, max: bigint): bigint => (v < 0n ? 0n : v > max ? max : v);
+  const gb = clamp(grant.bytes, MAX_TOKEN_BYTES);
+  const gs = clamp(grant.spendMusd, MAX_TOKEN_SPEND_MUSD);
+  const ab = clamp(actualBytes, MAX_TOKEN_BYTES);
+  const as = clamp(actualSpendMusd, MAX_TOKEN_SPEND_MUSD);
+  const r = await query<{ exhausted: boolean }>(
+    `UPDATE proxy_tokens
+       SET bytes_used = LEAST(GREATEST(bytes_used - $2::bigint + $3::bigint, 0), COALESCE(max_bytes, ${MAX_TOKEN_BYTES.toString()})),
+           spend_used_musd = LEAST(GREATEST(spend_used_musd - $4::bigint + $5::bigint, 0), COALESCE(max_spend_musd, ${MAX_TOKEN_SPEND_MUSD.toString()}))
+     WHERE id = $1
+     RETURNING ((max_bytes IS NOT NULL AND bytes_used >= max_bytes)
+         OR (max_spend_musd IS NOT NULL AND spend_used_musd >= max_spend_musd)) AS exhausted`,
+    [id, gb.toString(), ab.toString(), gs.toString(), as.toString()],
+  );
+  return { exhausted: r.rows[0]?.exhausted === true };
+}
+
+/**
+ * Of the given token ids, those that no longer authorize traffic (revoked,
+ * expired or deleted). Used by the gateway sweep that ends open sessions of
+ * tokens revoked through another API instance.
+ */
+export async function findEndedTokenIds(ids: string[]): Promise<string[]> {
+  const valid = [...new Set(ids.filter((x) => UUID_RE.test(x)))];
+  if (valid.length === 0) return [];
+  const r = await query<{ id: string }>(
+    `SELECT id FROM proxy_tokens WHERE id = ANY($1::uuid[]) AND revoked_at IS NULL AND expires_at > now()`,
+    [valid],
+  );
+  const live = new Set(r.rows.map((x) => x.id));
+  return valid.filter((x) => !live.has(x));
+}
