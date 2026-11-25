@@ -3,7 +3,7 @@ import { generateKeyPairSync, createPublicKey } from "node:crypto";
 import {
   signDocument, signerFromPrivateKey, verifyCoordinatorDocument, verifyPolicyDocument, buildPolicyDocument,
   coordKeyFingerprint, normalizeFingerprint, resolveBranding, securityTxtContact, parseHostnameList, parsePubkeyList,
-  COORDINATOR_DOC_DOMAIN, POLICY_DOC_DOMAIN, OFFICIAL_OPERATOR_NAME, OFFICIAL_CONTACT,
+  COORDINATOR_DOC_DOMAIN, POLICY_DOC_DOMAIN, OFFICIAL_OPERATOR_NAME,
   type CoordinatorDocument,
 } from "./federation.js";
 import { ed25519PublicKeyHex } from "./tunnel/auth-sig.js";
@@ -93,9 +93,11 @@ describe("helpers", () => {
 
 describe("resolveBranding (F8)", () => {
   const pub = "cd".repeat(32);
-  it("shows the official name and contact only for an official pin", () => {
+  it("shows the official name only for an official pin; contact comes only from config", () => {
     const b = resolveBranding({ OFFICIAL_COORD_PUBKEYS: pub }, [pub]);
-    expect(b).toMatchObject({ official: true, operatorName: OFFICIAL_OPERATOR_NAME, contact: OFFICIAL_CONTACT });
+    expect(b).toMatchObject({ official: true, operatorName: OFFICIAL_OPERATOR_NAME, contact: null, abuseContact: null });
+    const c = resolveBranding({ OFFICIAL_COORD_PUBKEYS: pub, OPERATOR_CONTACT: "mailto:ops@example.org" }, [pub]);
+    expect(c).toMatchObject({ contact: "mailto:ops@example.org", abuseContact: "mailto:ops@example.org" });
   });
   it("forks get neutral defaults and no official contact", () => {
     const b = resolveBranding({}, [pub]);

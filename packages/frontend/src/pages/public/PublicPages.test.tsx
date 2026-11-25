@@ -25,7 +25,7 @@ describe("public pages", () => {
         expect(a.getAttribute("href") ?? "").not.toMatch(/\/(login|admin|register|signup)/i);
       }
       expect(document.body.textContent).not.toMatch(/\$\d+(\.\d+)?\s*\/\s*GB/);
-      expect(screen.getByRole("link", { name: "0xcircuitbreaker@protonmail.com" })).toHaveAttribute("href", "mailto:0xcircuitbreaker@protonmail.com");
+      expect(screen.getByRole("link", { name: "contact@example.org" })).toHaveAttribute("href", "mailto:contact@example.org");
     });
   }
 

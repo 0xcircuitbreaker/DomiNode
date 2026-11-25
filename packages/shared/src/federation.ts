@@ -229,7 +229,6 @@ export function parsePubkeyList(raw: string | undefined): string[] {
 
 export const OFFICIAL_SITE_NAME = "Dominus Node";
 export const OFFICIAL_OPERATOR_NAME = "Daedalus Development Group";
-export const OFFICIAL_CONTACT = "mailto:0xcircuitbreaker@protonmail.com";
 const GENERIC_SITE_NAME = "DominusNode-compatible relay";
 const GENERIC_OPERATOR_NAME = "Independent operator";
 const RESERVED_NAME_RE = /daedalus|\bddg\b|dominus\s*node\s*official/i;
@@ -243,7 +242,7 @@ export interface Branding {
 }
 
 /**
- * Branding for this coordinator. The official DDG names and default contact
+ * Branding for this coordinator. The official DDG names
  * appear only when the coordinator's key is one of the official pins
  * (OFFICIAL_COORD_PUBKEYS). Forks get neutral defaults, and a configured name
  * that claims the DDG operator is replaced rather than shown.
@@ -261,7 +260,7 @@ export function resolveBranding(env: NodeJS.ProcessEnv, coordPubkeys: readonly s
     if (RESERVED_NAME_RE.test(siteName)) siteName = GENERIC_SITE_NAME;
     if (RESERVED_NAME_RE.test(operatorName)) operatorName = GENERIC_OPERATOR_NAME;
   }
-  const contact = clean(env["OPERATOR_CONTACT"], 256) ?? (isOfficial ? OFFICIAL_CONTACT : null);
+  const contact = clean(env["OPERATOR_CONTACT"], 256) ?? null; // no built-in contact: unset OPERATOR_CONTACT publishes none (security.txt 404), never a placeholder
   const abuseContact = clean(env["ABUSE_CONTACT"], 256) ?? contact;
   return { official: isOfficial, siteName, operatorName, contact, abuseContact };
 }
