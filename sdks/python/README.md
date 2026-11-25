@@ -2,7 +2,7 @@
 
 Python client for the DominusNode AI-agent relay network: proxy through relay nodes,
 register your own nodes, earn credits and withdraw payouts. It implements
-[`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (15 resources, 73 methods), with the Node SDK as
+[`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (16 resources, 77 methods), with the Node SDK as
 the reference implementation.
 
 - Sync `DominusNodeClient` and asyncio `AsyncDominusNodeClient` with the same methods
@@ -130,7 +130,7 @@ The gateway refuses the token once it is revoked, expired, or at a byte or spend
 | `sessions` | `get_active` (id, startedAt and status only; never IPs), `report` |
 | `x402` | `get_info` |
 | `network` | `policy`, `pricing`, `stats` |
-| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier` |
+| `nodes` | `register_challenge`, `register`, `list`, `revoke`, `update_caps`, `tier`, `earnings_projection` |
 | `credits` | `balance`, `transactions`, `convert` (signed), `withdraw` (signed) |
 | `payout_wallet` | `get`, `set` |
 | `payouts` | `list` |

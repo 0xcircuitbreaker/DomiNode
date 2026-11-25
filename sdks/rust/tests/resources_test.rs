@@ -243,3 +243,65 @@ async fn network_status_decodes_typed() {
     assert_eq!(s.nodes.as_ref().unwrap().countries_available, 1);
     assert_eq!(s.incidents[0].resolved_at, None);
 }
+
+// ---- nodes.earnings_projection and proxy_tokens (3)
+case!(nodes_earnings_projection, json!({"windowDays": 14, "current": {"tier": {"id": 1}}, "nextTier": null}), |c| c.nodes.earnings_projection(Some(14)), "GET", "/v1/nodes/earnings/projection?days=14", None, A);
+case!(nodes_earnings_projection_default, json!({}), |c| c.nodes.earnings_projection(None), "GET", "/v1/nodes/earnings/projection", None, A);
+case!(proxy_tokens_list, json!({"tokens": [{"id": UUID, "status": "active", "maxBytes": null, "bytesUsed": "0"}], "maxActive": 25}), |c| c.proxy_tokens.list(), "GET", "/v1/proxy-tokens", None, A);
+case!(proxy_tokens_revoke, json!({"id": UUID, "revoked": true}), |c| c.proxy_tokens.revoke(UUID), "DELETE", &format!("/v1/proxy-tokens/{UUID}"), None, A);
+
+fn ptok() -> String {
+    format!("dn_proxy_{}", "A".repeat(43))
+}
+
+#[tokio::test]
+async fn proxy_tokens_create_sends_caps_as_strings_and_wraps_secret() {
+    let (c, m) = connected().await;
+    m.push(r(200, json!({"id": UUID, "label": "ci", "status": "active", "maxBytes": "1000000000000000", "maxSpendMusd": "5", "bytesUsed": "0", "spendUsedMusd": "0", "token": ptok()})));
+    let opts = dominusnode::CreateProxyTokenOptions {
+        label: Some("ci".into()),
+        ttl_seconds: Some(3600),
+        max_bytes: Some(1_000_000_000_000_000u64.into()),
+        max_spend_musd: Some("5".into()),
+    };
+    let t = c.proxy_tokens.create(opts).await.unwrap();
+    check(&m, "POST", "/v1/proxy-tokens", Some(json!({"label": "ci", "ttlSeconds": 3600, "maxBytes": "1000000000000000", "maxSpendMusd": "5"})), A);
+    assert_eq!(t.token.reveal(), ptok());
+    assert_eq!(t.info.max_spend_musd.as_deref(), Some("5"));
+    for s in [format!("{t:?}"), format!("{}", t.token), serde_json::to_string(&t).unwrap()] {
+        assert!(!s.contains(&ptok()), "token leaked: {s}");
+    }
+}
+
+#[tokio::test]
+async fn proxy_tokens_create_refuses_malformed_token() {
+    for bad in [json!("dn_live_x"), json!(format!("dn_proxy_{}", "A".repeat(42))), json!(format!("dn_proxy_{}", "!".repeat(43))), json!(null)] {
+        let (c, m) = connected().await;
+        m.push(r(200, json!({"id": UUID, "token": bad})));
+        assert!(c.proxy_tokens.create(Default::default()).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn proxy_tokens_and_projection_validate_before_sending() {
+    use dominusnode::CreateProxyTokenOptions as O;
+    let (c, m) = connected().await;
+    let before = m.count();
+    let bad = vec![
+        O { label: Some("x".repeat(65)), ..Default::default() },
+        O { label: Some("a\nb".into()), ..Default::default() },
+        O { ttl_seconds: Some(59), ..Default::default() },
+        O { ttl_seconds: Some(31_536_001), ..Default::default() },
+        O { max_bytes: Some(0i64.into()), ..Default::default() },
+        O { max_bytes: Some("1000000000000001".into()), ..Default::default() },
+        O { max_spend_musd: Some("1.5".into()), ..Default::default() },
+        O { max_spend_musd: Some(10_000_000_000_001i64.into()), ..Default::default() },
+    ];
+    for o in bad {
+        assert!(c.proxy_tokens.create(o).await.is_err());
+    }
+    assert!(c.proxy_tokens.revoke("a/b").await.is_err());
+    assert!(c.nodes.earnings_projection(Some(0)).await.is_err());
+    assert!(c.nodes.earnings_projection(Some(31)).await.is_err());
+    assert_eq!(m.count(), before);
+}

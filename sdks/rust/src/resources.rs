@@ -684,6 +684,93 @@ impl NodesResource {
     pub async fn tier(&self) -> Result<NodeTier> {
         self.http.get("/v1/node/tier", AuthMode::Agent).await
     }
+    /// `GET /v1/nodes/earnings/projection?days=`; days 1..30 (`None` = server default 7).
+    pub async fn earnings_projection(&self, days: Option<i64>) -> Result<EarningsProjection> {
+        if let Some(d) = days {
+            validate_int_range(d, "days", 1, 30)?;
+        }
+        let q = qs(&[("days", opt(days))]);
+        self.http.get(&format!("/v1/nodes/earnings/projection{q}"), AuthMode::Agent).await
+    }
+}
+
+// =================================================================== proxyTokens (3)
+
+/// Smallest proxy token lifetime (seconds).
+pub const PROXY_TOKEN_MIN_TTL_SECONDS: i64 = 60;
+/// Largest proxy token lifetime (seconds, 365 days).
+pub const PROXY_TOKEN_MAX_TTL_SECONDS: i64 = 365 * 24 * 3600;
+/// Largest byte cap.
+pub const PROXY_TOKEN_MAX_BYTES: i128 = 1_000_000_000_000_000;
+/// Largest spend cap (µUSD).
+pub const PROXY_TOKEN_MAX_SPEND_MUSD: i128 = 10_000_000_000_000;
+
+/// Options for [`ProxyTokensResource::create`]; every field optional.
+#[derive(Debug, Clone, Default)]
+pub struct CreateProxyTokenOptions {
+    /// At most 64 printable characters.
+    pub label: Option<String>,
+    /// 60..31536000 (server default 30 days).
+    pub ttl_seconds: Option<i64>,
+    /// Byte cap 1..10^15 (integer or digit string).
+    pub max_bytes: Option<Musd>,
+    /// Spend cap in µUSD 1..10^13 (integer or digit string).
+    pub max_spend_musd: Option<Musd>,
+}
+
+fn is_proxy_token(s: &str) -> bool {
+    s.strip_prefix("dn_proxy_")
+        .is_some_and(|r| r.len() == 43 && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+}
+
+fn to_cap(v: Musd, max: i128, name: &str) -> Result<String> {
+    to_musd(v, 1, max).map_err(|_| DominusNodeError::invalid_arg(format!("{name} must be an integer between 1 and {max}")))
+}
+
+/// Scoped, revocable `dn_proxy_` tokens for the proxy password field (agent auth).
+#[derive(Debug, Clone)]
+pub struct ProxyTokensResource {
+    http: Http,
+}
+impl ProxyTokensResource {
+    pub(crate) fn new(http: Http) -> Self {
+        Self { http }
+    }
+    /// `POST /v1/proxy-tokens`; caps are sent as decimal strings.
+    pub async fn create(&self, opts: CreateProxyTokenOptions) -> Result<CreatedProxyToken> {
+        let mut body = Map::new();
+        if let Some(l) = opts.label {
+            if l.chars().count() > 64 || l.chars().any(|c| (c as u32) < 0x20 || c as u32 == 0x7f) {
+                return Err(DominusNodeError::invalid_arg("label must be at most 64 printable characters"));
+            }
+            body.insert("label".into(), json!(l));
+        }
+        if let Some(t) = opts.ttl_seconds {
+            body.insert("ttlSeconds".into(), json!(validate_int_range(t, "ttlSeconds", PROXY_TOKEN_MIN_TTL_SECONDS, PROXY_TOKEN_MAX_TTL_SECONDS)?));
+        }
+        if let Some(v) = opts.max_bytes {
+            body.insert("maxBytes".into(), json!(to_cap(v, PROXY_TOKEN_MAX_BYTES, "maxBytes")?));
+        }
+        if let Some(v) = opts.max_spend_musd {
+            body.insert("maxSpendMusd".into(), json!(to_cap(v, PROXY_TOKEN_MAX_SPEND_MUSD, "maxSpendMusd")?));
+        }
+        let mut r: Value = self.http.post("/v1/proxy-tokens", Value::Object(body), AuthMode::Agent).await?;
+        let token = match r.as_object_mut().and_then(|o| o.remove("token")) {
+            Some(Value::String(t)) if is_proxy_token(&t) => t,
+            _ => return Err(DominusNodeError::protocol("server returned a malformed proxy token")),
+        };
+        let info: ProxyTokenInfo = serde_json::from_value(r).map_err(|_| DominusNodeError::protocol("invalid proxy token response"))?;
+        Ok(CreatedProxyToken { info, token: Secret::new(token) })
+    }
+    /// `GET /v1/proxy-tokens` (metadata only).
+    pub async fn list(&self) -> Result<ProxyTokenList> {
+        self.http.get("/v1/proxy-tokens", AuthMode::Agent).await
+    }
+    /// `DELETE /v1/proxy-tokens/{id}`.
+    pub async fn revoke(&self, id: &str) -> Result<ProxyTokenRevoked> {
+        validate_uuid(id, "id")?;
+        self.http.delete(&format!("/v1/proxy-tokens/{}", encode_uri_component(id)), AuthMode::Agent).await
+    }
 }
 
 // =================================================================== credits (4)

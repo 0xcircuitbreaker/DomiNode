@@ -1,7 +1,7 @@
 //! # Dominus Node SDK for Rust (v2)
 //!
 //! Relay-network client for AI agents, implementing `sdks/SDK_SURFACE.md`:
-//! 15 resources, 73 methods, plus `connect_with_key` / `disconnect` / `is_connected`.
+//! 16 resources, 77 methods, plus `connect_with_key` / `disconnect` / `is_connected`.
 //!
 //! ```no_run
 //! use dominusnode::{Config, DominusNodeClient, ProxyFetchOptions};
@@ -32,5 +32,5 @@ pub mod util;
 pub use client::{Config, DominusNodeClient};
 pub use errors::{scrub_credentials, DominusNodeError, ErrorInfo, Result};
 pub use proxy::{FetchMethod, GatewayTls, IpClass, ProxyFetchOptions, ProxyFetchResponse, ProxyProtocol, ProxyRoutingOptions, DEFAULT_TLS_PROXY_PORT};
-pub use resources::RegisterNodeOptions;
+pub use resources::{CreateProxyTokenOptions, RegisterNodeOptions};
 pub use util::{FnSigner, Musd, Secret, Signer};

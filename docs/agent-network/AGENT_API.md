@@ -27,6 +27,7 @@ extension use these exact shapes.
 | `PATCH /v1/nodes/:id` | agent | [Nodes](#nodes) |
 | `DELETE /v1/nodes/:id` | agent | [Nodes](#nodes) |
 | `GET /v1/node/tier` | agent | [Nodes](#nodes) |
+| `GET /v1/nodes/earnings/projection` | agent | [Nodes](#nodes) |
 | `GET /v1/wallet` | agent | [Credits](#credits) (prepaid wallet `balanceCents`, raw API key, no token minted) |
 | `GET /v1/credits` | agent | [Credits](#credits) |
 | `GET /v1/credits/transactions` | agent | [Credits](#credits) |
@@ -295,6 +296,27 @@ SDKs 2.1.0 (all six) expose `verifiedClass`, `declaredClass`, `classVerifiedAt`,
 `tierWeight`, `tierWeights`, `declaredClass` on register, `class-masked` and
 `nextCursor` paging (sdks/SDK_SURFACE.md, additive); the 27 integrations accept
 `masked` on the fetch tool's `ip_class` and require SDK >= 2.1.0.
+
+### `GET /v1/nodes/earnings/projection?days=7`
+Projects the caller's node-share earnings from the last `days` (integer 1..30,
+default 7; else `400`) of gateway-metered traffic through their own nodes
+(`relay_charges.bytes_gateway`; zero-rated and disputed charges excluded) at
+current `network_pricing` prices (the class's row, else `any`, else 0). Money
+and byte values are integer strings (µUSD / bytes):
+
+```json
+{"windowDays": 7, "meteredBytes": "2000000000",
+ "current":  {"tier": {"id", "name", "nodeShareBps", "holdDays"}, "dailyMusd", "monthlyMusd", "windowMusd"},
+ "nextTier": {...same shape...} | null,
+ "topTier":  {...same shape...},
+ "byClass": [{"ipClass", "bytes", "pricePerGbMusd", "tierWeight", "dailyMusd", "monthlyMusd"}],
+ "pricing": {"residential": "500000", ...},
+ "maturity": {"holdDays", "firstWithdrawableDaysFromNow"},
+ "note": "..."}
+```
+
+`monthlyMusd` is 30 days at the window's daily rate. An estimate, not a
+guarantee. `503` when pricing is not configured.
 
 ### Node error codes
 | Status and code | When |

@@ -124,6 +124,20 @@ describe("nodes", () => {
     await expect(client.nodes.revoke("../x")).rejects.toBeInstanceOf(ValidationError);
     await expect(client.nodes.list({ limit: 501 })).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it("earningsProjection sends days and validates 1..30", async () => {
+    const { client, calls } = await connected([200, { windowDays: 14 }], [200, { windowDays: 7 }]);
+    expect((await client.nodes.earningsProjection(14)).windowDays).toBe(14);
+    await client.nodes.earningsProjection();
+    expect(calls.map((c) => `${c.method} ${c.url.slice(B.length)}`)).toEqual([
+      "GET /v1/nodes/earnings/projection?days=14", "GET /v1/nodes/earnings/projection",
+    ]);
+    expect(calls[0].headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    await expect(client.nodes.earningsProjection(0)).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.nodes.earningsProjection(31)).rejects.toBeInstanceOf(ValidationError);
+    await expect(client.nodes.earningsProjection(1.5)).rejects.toBeInstanceOf(ValidationError);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("credits", () => {

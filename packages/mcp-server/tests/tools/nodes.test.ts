@@ -299,6 +299,31 @@ describe("other node tools", () => {
     expect(text).toContain("Active IPs are class-weighted: residential 1, mobile 1, dc 0.4, masked 0.25");
   });
 
+  it("node_earnings_projection requests the window and formats tiers and classes", async () => {
+    const server = await setup();
+    const view = (name: string, bps: number, daily: string, monthly: string) => ({
+      tier: { id: 1, name, nodeShareBps: bps, holdDays: 14 }, dailyMusd: daily, monthlyMusd: monthly, windowMusd: "0",
+    });
+    const fetchFn = mockFetchSequence(jsonResponse({
+      windowDays: 14, meteredBytes: "2000000000",
+      current: view("Probation", 2500, "125000", "3750000"),
+      nextTier: view("Bronze", 3000, "150000", "4500000"),
+      topTier: view("Partner", 5000, "250000", "7500000"),
+      byClass: [{ ipClass: "residential", bytes: "2000000000", pricePerGbMusd: "500000", tierWeight: 1, dailyMusd: "125000", monthlyMusd: "3750000" }],
+      pricing: { residential: "500000" },
+      maturity: { holdDays: 14, firstWithdrawableDaysFromNow: 14 },
+      note: "Projection from recent gateway-metered traffic at current prices; not a guarantee.",
+    }));
+    const text = (await callTool(server, "dominusnode_node_earnings_projection", { days: 14 })).content[0].text;
+    expect(String(fetchFn.mock.calls[0]![0])).toContain("/v1/nodes/earnings/projection?days=14");
+    expect(text).toContain("Current tier: Probation (25% share)");
+    expect(text).toContain("Next tier: Bronze");
+    expect(text).toContain("Top tier: Partner (50% share)");
+    expect(text).toContain("residential: 2000000000 bytes");
+    expect(text).toContain("Earnings hold: 14 days");
+    expect(text).toContain("not a guarantee");
+  });
+
   it("node tools fail cleanly without an API key", async () => {
     const server = await setup({ apiKey: null });
     const fetchFn = mockFetchSequence();

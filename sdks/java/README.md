@@ -2,7 +2,7 @@
 
 Java client for the DominusNode relay network, built for AI agents and node operators.
 It implements the language-neutral contract in [`sdks/SDK_SURFACE.md`](../SDK_SURFACE.md) (v2):
-15 resources and 73 methods. The reference implementation is the Node SDK.
+16 resources and 77 methods. The reference implementation is the Node SDK.
 
 > Distributed via GitHub Packages (not yet on Maven Central).
 
@@ -43,7 +43,7 @@ Then in `pom.xml` (the repository `id` must match the server `id`):
 <dependency>
   <groupId>io.dominusnode</groupId>
   <artifactId>dominusnode-sdk</artifactId>
-  <version>2.4.0</version>
+  <version>2.5.0</version>
 </dependency>
 ```
 
@@ -91,7 +91,8 @@ Config cfg = Config.builder()
 | `sessions()` | getActive, report |
 | `x402()` | getInfo |
 | `network()` | policy, pricing, stats |
-| `nodes()` | registerChallenge, register, list, revoke, updateCaps, tier |
+| `nodes()` | registerChallenge, register, list, revoke, updateCaps, tier, earningsProjection |
+| `proxyTokens()` | create (token in a `Secret`), list, revoke |
 | `credits()` | balance, transactions, convert, withdraw |
 | `payoutWallet()` | get, set |
 | `payouts()` | list |

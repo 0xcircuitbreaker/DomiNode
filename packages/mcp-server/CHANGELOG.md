@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `dominusnode_node_earnings_projection`: projected daily and 30-day node-share earnings (`GET /v1/nodes/earnings/projection`, window 1-30 days) for the current, next and top tier, by exit class.
 - `dominusnode_fetch` returns HTML as markdown by default (`format`: `markdown`, `text`, `raw`), converted in-house with no new dependency (script, style and comments stripped; linear-time scan).
 - `max_length` (default 20000 chars) and `start_index` page through long bodies, with a `[truncated, next start_index=N]` footer.
 - `user_agent`: presets `chrome-desktop`, `firefox-desktop`, `safari-mobile`, `default`, or a bounded custom string (no CR/LF).

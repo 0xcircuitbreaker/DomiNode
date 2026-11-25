@@ -2,6 +2,9 @@ package io.dominusnode.sdk;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.dominusnode.sdk.resources.KeysResource;
+import io.dominusnode.sdk.resources.ProxyTokensResource;
+import io.dominusnode.sdk.errors.ProtocolException;
+import io.dominusnode.sdk.errors.ValidationException;
 import io.dominusnode.sdk.resources.SessionsResource;
 import io.dominusnode.sdk.resources.TeamsResource;
 import org.junit.jupiter.api.DynamicTest;
@@ -33,6 +36,7 @@ class ResourcesTest {
 
     private static final String ENC = "a%2Fb%20c";  // "a/b c"
     private static final String RAW = "a/b c";
+    private static final String PTOK = "dn_proxy_" + "A".repeat(43);
 
     static List<Case> cases() {
         List<Case> l = new ArrayList<>();
@@ -108,6 +112,14 @@ class ResourcesTest {
         l.add(new Case("nodes.revoke", c -> c.nodes().revoke(UUID), "DELETE", "/v1/nodes/" + UUID, null, "agent"));
         l.add(new Case("nodes.updateCaps", c -> c.nodes().updateCaps(UUID, null, 20, null), "PATCH", "/v1/nodes/" + UUID, "{\"gbPerDay\":20}", "agent"));
         l.add(new Case("nodes.tier", c -> c.nodes().tier(), "GET", "/v1/node/tier", null, "agent"));
+        l.add(new Case("nodes.earningsProjection", c -> c.nodes().earningsProjection(14), "GET", "/v1/nodes/earnings/projection?days=14", null, "agent"));
+        l.add(new Case("nodes.earningsProjection(default)", c -> c.nodes().earningsProjection(), "GET", "/v1/nodes/earnings/projection", null, "agent"));
+        // proxyTokens (3)
+        l.add(new Case("proxyTokens.create", c -> c.proxyTokens().create(new ProxyTokensResource.CreateProxyTokenOptions()
+                .label("ci").ttlSeconds(3600).maxBytes(1_000_000_000_000_000L).maxSpendMusd("5")), "POST", "/v1/proxy-tokens",
+                "{\"label\":\"ci\",\"ttlSeconds\":3600,\"maxBytes\":\"1000000000000000\",\"maxSpendMusd\":\"5\"}", "agent"));
+        l.add(new Case("proxyTokens.list", c -> c.proxyTokens().list(), "GET", "/v1/proxy-tokens", null, "agent"));
+        l.add(new Case("proxyTokens.revoke", c -> c.proxyTokens().revoke(UUID), "DELETE", "/v1/proxy-tokens/" + UUID, null, "agent"));
         // credits (withdraw in SignerFlowsTest)
         l.add(new Case("credits.balance", c -> c.credits().balance(), "GET", "/v1/credits", null, "agent"));
         l.add(new Case("credits.transactions", c -> c.credits().transactions(50, "123", "earn"), "GET", "/v1/credits/transactions?limit=50&cursor=123&type=earn", null, "agent"));
@@ -127,6 +139,7 @@ class ResourcesTest {
             out.add(DynamicTest.dynamicTest(k.name, () -> {
                 MockTransport t = new MockTransport();
                 DominusNodeClient c = connected(t);
+                if (k.name.equals("proxyTokens.create")) t.reply(200, "{\"id\":\"" + UUID + "\",\"token\":\"" + PTOK + "\"}");
                 if (k.name.startsWith("keys.create")) t.reply(200, "{\"id\":\"1\",\"key\":\"" + API_KEY + "\"}");
                 if (k.name.startsWith("teams.createKey")) t.reply(200, "{\"id\":\"1\",\"key\":\"dn_live_teamkey123456\"}");
                 k.call.accept(c);
@@ -143,7 +156,7 @@ class ResourcesTest {
                 }
                 String expected = k.auth.equals("none") ? null : "Bearer " + (k.auth.equals("agent") ? API_KEY : JWT);
                 assertEquals(expected, MockTransport.auth(r));
-                assertEquals("dominusnode-sdk-java/2.4.0", r.headers.get("User-Agent"));
+                assertEquals("dominusnode-sdk-java/2.5.0", r.headers.get("User-Agent"));
                 assertEquals("application/json", r.headers.get("Accept"));
             }));
         }
@@ -189,13 +202,13 @@ class ResourcesTest {
     /** Convenience iterators on top of the surface; not counted as surface methods. */
     static final Set<String> PAGINATION_HELPERS = Set.of("iterate", "stream", "listAfter", "iterTransactions", "streamTransactions", "iterRecords", "streamRecords");
 
-    /** 15 resources, 73 methods (counting distinct public method names per resource). */
+    /** 16 resources, 77 methods (counting distinct public method names per resource). */
     @Test
     void surfaceCounts() {
         DominusNodeClient c = client(new MockTransport());
         Object[] resources = {c.auth(), c.walletAuth(), c.keys(), c.wallet(), c.agenticWallets(), c.teams(), c.usage(),
-                c.sessions(), c.x402(), c.network(), c.nodes(), c.credits(), c.payoutWallet(), c.payouts(), c.proxy()};
-        int[] expected = {4, 4, 3, 6, 9, 18, 4, 2, 1, 4, 6, 4, 2, 1, 5};
+                c.sessions(), c.x402(), c.network(), c.nodes(), c.credits(), c.payoutWallet(), c.payouts(), c.proxy(), c.proxyTokens()};
+        int[] expected = {4, 4, 3, 6, 9, 18, 4, 2, 1, 4, 7, 4, 2, 1, 5, 3};
         int total = 0;
         for (int i = 0; i < resources.length; i++) {
             Set<String> names = new TreeSet<>();
@@ -206,7 +219,42 @@ class ResourcesTest {
             assertEquals(expected[i], names.size(), resources[i].getClass().getSimpleName() + " " + names);
             total += names.size();
         }
-        assertEquals(15, resources.length);
-        assertEquals(73, total);
+        assertEquals(16, resources.length);
+        assertEquals(77, total);
+    }
+
+    @Test
+    void proxyTokenSecretAndValidation() {
+        MockTransport t = new MockTransport();
+        DominusNodeClient c = connected(t);
+        t.reply(200, "{\"id\":\"" + UUID + "\",\"status\":\"active\",\"maxBytes\":null,\"maxSpendMusd\":\"5\",\"token\":\"" + PTOK + "\"}");
+        ProxyTokensResource.CreatedProxyToken k = c.proxyTokens().create();
+        assertEquals("{}", MockTransport.json(t.last()).toString());
+        assertEquals(PTOK, k.token.reveal());
+        assertNull(k.maxBytes);
+        assertEquals("5", k.maxSpendMusd);
+        assertFalse(k.toString().contains(PTOK));
+        assertEquals("[REDACTED]", String.valueOf(k.token));
+        for (String bad : new String[] {"dn_live_x", "dn_proxy_" + "A".repeat(42), "dn_proxy_" + "!".repeat(43)}) {
+            t.reply(200, "{\"id\":\"x\",\"token\":\"" + bad + "\"}");
+            assertThrows(ProtocolException.class, () -> c.proxyTokens().create());
+        }
+        int n = t.requests.size();
+        List<ProxyTokensResource.CreateProxyTokenOptions> badOpts = List.of(
+                new ProxyTokensResource.CreateProxyTokenOptions().label("x".repeat(65)),
+                new ProxyTokensResource.CreateProxyTokenOptions().label("a\nb"),
+                new ProxyTokensResource.CreateProxyTokenOptions().ttlSeconds(59),
+                new ProxyTokensResource.CreateProxyTokenOptions().ttlSeconds(31_536_001),
+                new ProxyTokensResource.CreateProxyTokenOptions().maxBytes(0L),
+                new ProxyTokensResource.CreateProxyTokenOptions().maxBytes("1000000000000001"),
+                new ProxyTokensResource.CreateProxyTokenOptions().maxSpendMusd("1.5"),
+                new ProxyTokensResource.CreateProxyTokenOptions().maxSpendMusd(10_000_000_000_001L));
+        for (ProxyTokensResource.CreateProxyTokenOptions o : badOpts) {
+            assertThrows(ValidationException.class, () -> c.proxyTokens().create(o));
+        }
+        assertThrows(ValidationException.class, () -> c.proxyTokens().revoke("a/b"));
+        assertThrows(ValidationException.class, () -> c.nodes().earningsProjection(0));
+        assertThrows(ValidationException.class, () -> c.nodes().earningsProjection(31));
+        assertEquals(n, t.requests.size());
     }
 }

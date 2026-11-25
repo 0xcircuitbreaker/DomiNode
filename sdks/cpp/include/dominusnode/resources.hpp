@@ -245,6 +245,40 @@ public:
     json revoke(const std::string& node_id);
     json update_caps(const std::string& node_id, const NodeCaps& caps);
     json tier();
+    /// GET /v1/nodes/earnings/projection?days= (days 1..30; nullopt = server default 7).
+    /// Money and byte values are integer strings.
+    json earnings_projection(OptInt days = std::nullopt);
+private:
+    HttpClient& http_;
+};
+
+// ─── 3.18 proxyTokens ───────────────────────────────────────────────────────
+inline constexpr long long PROXY_TOKEN_MIN_TTL_SECONDS = 60;
+inline constexpr long long PROXY_TOKEN_MAX_TTL_SECONDS = 365LL * 24 * 3600;
+inline constexpr std::uint64_t PROXY_TOKEN_MAX_BYTES = 1000000000000000ULL;
+inline constexpr std::uint64_t PROXY_TOKEN_MAX_SPEND_MUSD = 10000000000000ULL;
+
+/// Every field optional. Caps accept an integer or a digit string and are sent as decimal strings.
+struct CreateProxyTokenOptions {
+    OptStr label;                          ///< at most 64 printable characters
+    OptInt ttl_seconds;                    ///< 60..31536000 (server default 30 days)
+    std::optional<MusdInput> max_bytes;    ///< 1..10^15
+    std::optional<MusdInput> max_spend_musd;  ///< µUSD 1..10^13
+};
+/// POST /v1/proxy-tokens result: metadata plus the dn_proxy_ token, returned ONCE.
+struct CreatedProxyToken {
+    json info;    ///< {id, label, status, expiresAt, maxBytes, maxSpendMusd, bytesUsed, spendUsedMusd, revokedAt, createdAt}
+    Secret token;
+};
+/// Scoped, revocable dn_proxy_ tokens for the proxy password field [agent].
+class ProxyTokensResource {
+public:
+    explicit ProxyTokensResource(HttpClient& h) : http_(h) {}
+    CreatedProxyToken create(const CreateProxyTokenOptions& opts = {});
+    /// GET /v1/proxy-tokens -> {tokens, maxActive} (metadata only).
+    json list();
+    /// DELETE /v1/proxy-tokens/{id} -> {id, revoked}.
+    json revoke(const std::string& id);
 private:
     HttpClient& http_;
 };

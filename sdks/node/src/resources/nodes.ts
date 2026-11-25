@@ -126,6 +126,27 @@ export interface NodeTier {
   tierWeights?: Record<string, number>;
 }
 
+export interface ProjectionView {
+  tier: { id: number | string; name: string; nodeShareBps: number; holdDays: number };
+  /** Integer µUSD strings. */
+  dailyMusd: string;
+  monthlyMusd: string;
+  windowMusd: string;
+}
+
+/** GET /v1/nodes/earnings/projection. Money and byte values are integer strings. */
+export interface EarningsProjection {
+  windowDays: number;
+  meteredBytes: string;
+  current: ProjectionView;
+  nextTier: ProjectionView | null;
+  topTier: ProjectionView;
+  byClass: Array<{ ipClass: string; bytes: string; pricePerGbMusd: string; tierWeight: number; dailyMusd: string; monthlyMusd: string }>;
+  pricing: Record<string, string>;
+  maturity: { holdDays: number; firstWithdrawableDaysFromNow: number };
+  note: string;
+}
+
 const NODE_KEY_RE = /^dn_node_[0-9a-f]{64}$/;
 const MAX_ATTESTATION_TEXT = 64 * 1024;
 
@@ -248,5 +269,11 @@ export class NodesResource {
   /** GET /v1/node/tier — current tier, next tier and progress. */
   async tier(): Promise<NodeTier> {
     return this.http.get("/v1/node/tier", "agent");
+  }
+
+  /** GET /v1/nodes/earnings/projection — projected node-share earnings from the last `days` (1..30, server default 7). */
+  async earningsProjection(days?: number): Promise<EarningsProjection> {
+    if (days !== undefined) validateIntRange(days, "days", 1, 30);
+    return this.http.get(`/v1/nodes/earnings/projection${qs({ days })}`, "agent");
   }
 }

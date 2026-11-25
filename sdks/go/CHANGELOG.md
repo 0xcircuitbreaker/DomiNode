@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-11-25
+
+Additive release (SDK surface: 16 resources, 77 methods).
+
+### Added
+- `ProxyTokens.Create(ctx, CreateProxyTokenOptions{Label, TTLSeconds, MaxBytes, MaxSpendMusd})`, `ProxyTokens.List(ctx)`, `ProxyTokens.Revoke(ctx, id)`: scoped, revocable `dn_proxy_` proxy tokens with expiry and byte/spend caps (caps sent as decimal strings). The token is checked against `^dn_proxy_[A-Za-z0-9_-]{43}$` (else `ProtocolError`) and returned once in a `Secret`.
+- `Nodes.EarningsProjection(ctx, days *int)`: `GET /v1/nodes/earnings/projection` (days 1..30, server default 7), typed `*EarningsProjection`.
+- `String(v)` pointer helper for optional string parameters.
+
 ## [2.4.0] - 2026-11-14
 
 Additive release (SDK surface: 15 resources, 73 methods).

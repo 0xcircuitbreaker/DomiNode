@@ -69,6 +69,7 @@ public:
     CreditsResource credits;
     PayoutWalletResource payout_wallet;
     PayoutsResource payouts;
+    ProxyTokensResource proxy_tokens;
     ProxyResource proxy;
 };
 

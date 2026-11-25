@@ -51,7 +51,7 @@ Email/password registration, login and email verification are human flows (admin
 
 Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hour per process; successful sign-ins do not count.
 
-## Authenticated mode: 69 tools
+## Authenticated mode: 70 tools
 
 **Relay fetch and proxy config**
 - `dominusnode_fetch`: GET/HEAD through the HTTP proxy gateway (CONNECT tunnel for https, full-URL request for http). Options: `country` (`country-XX`), `ip_class` (`class-residential|dc|mobile`), `session_id` (`session-<id>`, sticky exit), `allow_http` (`allowhttp-1`). Client-side SSRF checks incl. DNS rebinding (every resolved IP is checked), ports 80/443 only, no redirects, 10MB cap, credentials scrubbed from errors. Responses over plaintext are flagged when the gateway sends `X-DominusNode-Exit-Visible: 1`. Output options: `format` (`markdown` default, `text`, or `raw`; conversion applies to HTML responses only, with script/style/comments stripped), `max_length` (default 20000 chars, max 200000) and `start_index` for paging (the body ends with `[truncated, next start_index=N]` when more remains), and `user_agent` (`chrome-desktop`, `firefox-desktop`, `safari-mobile`, `default`, or a custom printable-ASCII string up to 256 chars with no CR/LF and no credentials). `Authorization`, `Proxy-Authorization` and `User-Agent` in `headers` are still dropped. The result summary shows the response body bytes received (up to the 10MB cap) and the returned characters; billing is metered by the gateway on all bytes through the exit, headers and TLS included. Each page is a separate fetch and is billed again.
@@ -66,6 +66,7 @@ Wallet sign-in is rate limited: 20 challenges and 5 failed verifications per hou
 - `dominusnode_node_register_challenge`: preview the attestation you will sign and the PoW difficulty
 - `dominusnode_node_register`: challenge, attestation (shared builder, must match the server's), PoW, EIP-191 signature with the wallet key read from `DOMINUSNODE_WALLET_KEY_FILE`, then `POST /v1/nodes`. The `dn_node_` key is written to a new 0600 file (`DOMINUSNODE_NODE_KEY_FILE`) and never shown; the tool returns the path.
 - `dominusnode_node_list`, `dominusnode_node_revoke`, `dominusnode_node_tier`
+- `dominusnode_node_earnings_projection`: projected daily and 30-day node-share earnings from recent gateway-metered traffic (current, next and top tier, by exit class)
 - `dominusnode_node_update_caps`: lower a node's stream, GB/day or req/s caps (never above policy defaults)
 
 **Earnings and payouts** (shapes: `docs/agent-network/AGENT_API.md`)

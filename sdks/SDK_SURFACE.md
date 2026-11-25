@@ -1,7 +1,7 @@
 # DominusNode SDK surface (v2)
 
 Language-neutral contract for all six SDKs. The reference implementation is
-`sdks/node` (2.4.0; the Rust crate ships the same surface as 4.1.0; its 4.0.0 brought signed `credits.convert`, and 3.0.0 took the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
+`sdks/node` (2.5.0; the Rust crate ships the same surface as 4.2.0; its 4.0.0 brought signed `credits.convert`, and 3.0.0 took the major bump for a new enum variant); Python, Go, Rust, Java and C++ must expose the same
 resources, methods, parameters, results, errors and security behaviour.
 Use each language's naming convention (`register_challenge`, `RegisterChallenge`,
 `registerChallenge`), but keep the names below recognisable.
@@ -10,9 +10,9 @@ Server sources: `docs/agent-network/AGENT_API.md`, `packages/dashboard/src/route
 `packages/dashboard/src/routes/{auth,wallet-auth,keys,wallet,agent-wallet,teams,usage,sessions,x402,proxy-health,proxy-config}.ts`,
 `packages/proxy-gateway/src/auth.ts` (`parseProxyOptions`).
 
-**Totals: 15 resources, 73 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
-are conveniences on top and are not counted. A 16th resource, `proxyTokens` (3 methods, section 3.18),
-is shipped by Node and Python (76 methods there) and is a follow-up for Go, Rust, Java and C++ (section 5).
+**Totals: 16 resources, 77 resource methods, plus 3 client members.** Pagination helpers (section 3.16)
+are conveniences on top and are not counted. `proxyTokens` (3 methods, section 3.18) and
+`nodes.earningsProjection` ship in all six SDKs from Node/Python/Go/Java/C++ 2.5.0 and Rust 4.2.0.
 
 | Resource | Methods |
 |---|---|
@@ -26,11 +26,12 @@ is shipped by Node and Python (76 methods there) and is a follow-up for Go, Rust
 | sessions | 2 |
 | x402 | 1 |
 | network | 4 |
-| nodes | 6 |
+| nodes | 7 |
 | credits | 4 |
 | payoutWallet | 2 |
 | payouts | 1 |
 | proxy | 5 |
+| proxyTokens | 3 |
 
 ## 0. Removed (do NOT implement)
 
@@ -330,7 +331,7 @@ strings, null -> 0) and refuse anything else.
 | `stats()` | GET `/v1/network/stats` | `{onlineNodes, byClass: map, byCountry: [{country, online}], otherCountries, seed:{online, paidBytes24h}, community:{online, paidBytes24h}, generatedAt}` (seed = operator-run, community = agent-run; paidBytes24h is a decimal string) |
 | `status()` (2.4; Rust 4.1) | GET `/v1/status` | `{status: "operational"\|"degraded"\|"down"\|"unknown", coordinator:{status, policyVersion: int\|null}, gateway:{status, instancesOnline, lastHeartbeatAt: string\|null}, availability:{last24h: number\|null, last7d: number\|null} (percent), nodes: {onlineNodes, byClass, byCountry, otherCountries, countriesAvailable, suppressed?: [string]}\|null, incidents:[{title, body, severity, status, startedAt, resolvedAt: string\|null, updatedAt}], generatedAt}`. Aggregates only: no node ids, instance ids, incident ids or IPs |
 
-### 3.11 nodes (6) — [agent]
+### 3.11 nodes (7) — [agent]
 
 | Method | Request | Result |
 |---|---|---|
@@ -340,6 +341,7 @@ strings, null -> 0) and refuse anything else.
 | `revoke(nodeId)` | UUID; DELETE `/v1/nodes/{id}` | `{id, status}` |
 | `updateCaps(nodeId, maxStreams?, gbPerDay?, reqPerSec?)` | UUID; each present value integer 1..1,000,000; at least one; PATCH `/v1/nodes/{id}` with only the present keys | `{id, status, caps, effective, appliesOn}` |
 | `tier()` | GET `/v1/node/tier` | `{tier, nextTier, progress, changedAt, uptimeGraceUntil, demotionReason, tierWeights?}` (`tierWeights` maps exit class -> decimal weight, 2.1); TierView `{id, name, rank, nodeShareBps, holdDays, maxNodes, dailyWithdrawLimitMusd (string), buyerDiscountBps}` |
+| `earningsProjection(days?)` | days integer 1..30 (validated; omitted -> no query, server default 7); GET `/v1/nodes/earnings/projection?days=` | `{windowDays, meteredBytes, current, nextTier (nullable), topTier, byClass:[{ipClass, bytes, pricePerGbMusd, tierWeight, dailyMusd, monthlyMusd}], pricing, maturity:{holdDays, firstWithdrawableDaysFromNow}, note}`; each tier view `{tier:{id, name, nodeShareBps, holdDays}, dailyMusd, monthlyMusd, windowMusd}`; money/bytes are integer strings (2.5) |
 
 **register flow**
 1. Validate signer, pubkey, `maxStreams` 1..1024, `maxGbDay` 1..10000, `declaredClass` in `residential mobile dc masked` (before any request).
@@ -491,6 +493,7 @@ password (`proxy.buildUrl` with the token in place of the key, curl `-x`).
 | `revoke(id)` | `DELETE /v1/proxy-tokens/:id` | id must be a UUID (validated, path-encoded); 404 when unknown or already revoked |
 
 Python: `proxy_tokens.create(label=None, ttl_seconds=None, max_bytes=None, max_spend_musd=None)`, `list()`, `revoke(id)`.
+Go: `ProxyTokens.Create(ctx, CreateProxyTokenOptions{Label *string, TTLSeconds *int, MaxBytes, MaxSpendMusd *int64})`; Rust: `proxy_tokens.create(CreateProxyTokenOptions)` (caps as `Musd`); Java: `proxyTokens().create(new CreateProxyTokenOptions().label(..).ttlSeconds(..).maxBytes(..).maxSpendMusd(..))`; C++: `proxy_tokens.create(CreateProxyTokenOptions)` (caps as `MusdInput`). All six wrap `token` in `Secret`.
 
 ## 4. Tests every SDK must have
 
@@ -514,4 +517,5 @@ Mock the HTTP transport (return bodies through the text()/raw-body path).
 
 ## 5. Follow-ups
 
-- `proxyTokens` (section 3.18) in Go, Rust, Java and C++ (Node and Python ship it, unreleased).
+None open.
+

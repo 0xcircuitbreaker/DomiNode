@@ -542,6 +542,66 @@ model! {
     }
 }
 
+model! {
+    /// One tier's earnings projection; money values are integer µUSD strings.
+    pub struct ProjectionTier { pub id: Value, pub name: String, pub node_share_bps: i64, pub hold_days: i64 }
+}
+model! {
+    /// A tier view in [`EarningsProjection`].
+    pub struct ProjectionView { pub tier: ProjectionTier, pub daily_musd: String, pub monthly_musd: String, pub window_musd: String }
+}
+model! {
+    /// Per-exit-class projection row.
+    pub struct ProjectionClass {
+        pub ip_class: String, pub bytes: String, pub price_per_gb_musd: String, pub tier_weight: f64,
+        pub daily_musd: String, pub monthly_musd: String,
+    }
+}
+model! {
+    /// Earnings maturity hold.
+    pub struct ProjectionMaturity { pub hold_days: i64, pub first_withdrawable_days_from_now: i64 }
+}
+model! {
+    /// `GET /v1/nodes/earnings/projection`. Money and byte values are integer strings.
+    pub struct EarningsProjection {
+        pub window_days: i64, pub metered_bytes: String, pub current: ProjectionView,
+        pub next_tier: Option<ProjectionView>, pub top_tier: ProjectionView,
+        pub by_class: Vec<ProjectionClass>, pub pricing: std::collections::BTreeMap<String, String>,
+        pub maturity: ProjectionMaturity, pub note: String,
+    }
+}
+
+// ---- proxy tokens
+model! {
+    /// Proxy token metadata (no secret). Counters are integer strings; `None` caps mean no cap.
+    /// `status`: active | revoked | expired | exhausted.
+    pub struct ProxyTokenInfo {
+        pub id: String, pub label: String, pub status: String, pub expires_at: String,
+        pub max_bytes: Option<String>, pub max_spend_musd: Option<String>,
+        pub bytes_used: String, pub spend_used_musd: String,
+        pub revoked_at: Option<String>, pub created_at: String,
+    }
+}
+/// `POST /v1/proxy-tokens`: the new token, returned once (redacted in Debug/Display/Serialize).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct CreatedProxyToken {
+    /// Metadata.
+    #[serde(flatten)]
+    pub info: ProxyTokenInfo,
+    /// The `dn_proxy_` token; call `reveal()`.
+    pub token: crate::util::Secret,
+}
+model! {
+    /// `GET /v1/proxy-tokens`.
+    pub struct ProxyTokenList { pub tokens: Vec<ProxyTokenInfo>, pub max_active: i64 }
+}
+model! {
+    /// `DELETE /v1/proxy-tokens/{id}`.
+    pub struct ProxyTokenRevoked { pub id: String, pub revoked: bool }
+}
+
 // ---- credits
 model! {
     /// Credit tier.

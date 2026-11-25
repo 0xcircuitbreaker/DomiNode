@@ -184,6 +184,14 @@ public final class NodesResource {
     /** GET /v1/node/tier. */
     public JsonNode tier() { return http.get("/v1/node/tier", Auth.AGENT); }
 
+    public JsonNode earningsProjection() { return earningsProjection(null); }
+
+    /** GET /v1/nodes/earnings/projection?days= (days 1..30; null = server default 7). Money and bytes are integer strings. */
+    public JsonNode earningsProjection(Integer days) {
+        if (days != null) Validation.intRange(days, "days", 1, 30);
+        return http.get("/v1/nodes/earnings/projection" + qs("days", days), Auth.AGENT);
+    }
+
     /** Every node you own (follows nextCursor, offset fallback; page size default 100, max 500). */
     public java.util.Iterator<JsonNode> iterate(Integer limit) {
         int l = Paging.pageSize(limit, 100, 500);
