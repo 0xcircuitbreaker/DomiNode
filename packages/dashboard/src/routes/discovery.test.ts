@@ -41,6 +41,17 @@ describe("agent discovery documents", () => {
     expect(doc.contact["securityPolicy"]).toBe(SECURITY_POLICY_URL);
     expect(doc.contact["security"]).toMatch(/\/\.well-known\/security\.txt$/);
   });
+  it("lets operators override the policy URL and rejects unsafe values", async () => {
+    const { resolveSecurityPolicyUrl, discoveryEnv, buildAgentToolDocument, SECURITY_POLICY_URL } = await import("./discovery.js");
+    const ok = "https://security.example.org/policy";
+    expect(resolveSecurityPolicyUrl({ SECURITY_POLICY_URL: ok } as NodeJS.ProcessEnv)).toBe(ok);
+    const doc = buildAgentToolDocument(discoveryEnv({ SECURITY_POLICY_URL: ok } as NodeJS.ProcessEnv), { prices: [], tiers: [], maturationHours: 168 }) as { contact: Record<string, string> };
+    expect(doc.contact["securityPolicy"]).toBe(ok);
+    for (const bad of ["http://example.org/p", "javascript:alert(1)", "https://example.org/p\nContact: mailto:x@example.org", "https://u:p@example.org/", "not a url", "https://example.org/" + "a".repeat(600)]) {
+      expect(resolveSecurityPolicyUrl({ SECURITY_POLICY_URL: bad } as NodeJS.ProcessEnv)).toBe(SECURITY_POLICY_URL);
+    }
+    expect(resolveSecurityPolicyUrl({} as NodeJS.ProcessEnv)).toBe(SECURITY_POLICY_URL);
+  });
   it("describes the network honestly and leads with the TLS proxy when configured", async () => {
     const { buildLlmsTxt, buildAgentToolDocument, discoveryEnv } = await import("./discovery.js");
     const pricing = { prices: [{ ipClass: "dc", pricePerGbMusd: 200000n }], tiers: [], maturationHours: 168 };

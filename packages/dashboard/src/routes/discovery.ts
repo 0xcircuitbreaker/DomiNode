@@ -27,6 +27,8 @@ export interface DiscoveryEnv {
   tlsPort?: string | null;
   x402Enabled: boolean;
   rails: string[];
+  /** Responsible-disclosure policy URL (SECURITY_POLICY_URL, else the upstream SECURITY.md). */
+  securityPolicyUrl?: string;
 }
 
 export interface DiscoveryPricing {
@@ -45,6 +47,7 @@ export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): DiscoveryEnv
     tlsPort: getPublicProxyPorts(env).tls !== null ? String(getPublicProxyPorts(env).tls) : null,
     x402Enabled: env["X402_ENABLED"] === "true",
     rails,
+    securityPolicyUrl: resolveSecurityPolicyUrl(env),
   };
 }
 
@@ -187,12 +190,30 @@ export function buildAgentToolDocument(env: DiscoveryEnv, p: DiscoveryPricing): 
       ],
     },
 
-    contact: { security: `${b}/.well-known/security.txt`, securityPolicy: SECURITY_POLICY_URL },
+    contact: { security: `${b}/.well-known/security.txt`, securityPolicy: env.securityPolicyUrl ?? SECURITY_POLICY_URL },
   };
 }
 
 /** Responsible-disclosure policy (repo SECURITY.md); referenced by security.txt and the discovery doc. */
 export const SECURITY_POLICY_URL = "https://github.com/0xcircuitbreaker/DomiNode/blob/master/SECURITY.md";
+
+/**
+ * Policy URL for security.txt and the discovery doc. A self-hosted operator
+ * points SECURITY_POLICY_URL at its own policy; anything that is not a clean
+ * https URL (control characters would inject security.txt fields) falls back
+ * to the upstream SECURITY.md.
+ */
+export function resolveSecurityPolicyUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (env["SECURITY_POLICY_URL"] ?? "").trim();
+  if (!raw || raw.length > 512 || /[\u0000-\u0020\u007f]/.test(raw)) return SECURITY_POLICY_URL;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" || u.username || u.password) return SECURITY_POLICY_URL;
+    return u.href;
+  } catch {
+    return SECURITY_POLICY_URL;
+  }
+}
 
 /** Plain-text summary for LLM crawlers (llms.txt convention). */
 export function buildLlmsTxt(env: DiscoveryEnv, p: DiscoveryPricing): string {

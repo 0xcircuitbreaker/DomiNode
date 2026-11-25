@@ -30,7 +30,7 @@ Exits whose egress the gateway detects as VPN, WARP or Tor. It is the cheapest c
 
 ## Which countries are blocked?
 
-OFAC-sanctioned countries: Cuba, Iran, North Korea, Russia and Syria, both as exit targets and as payers.
+OFAC-sanctioned countries: Cuba, Iran, North Korea, Russia and Syria. No exit nodes are accepted from them and no traffic is routed to or through them. Per-request (x402/MPP) payer wallets are also screened against the OFAC SDN address list. See [ABUSE_CONTROLS.md](ABUSE_CONTROLS.md).
 
 ## How do I run a node and earn?
 
