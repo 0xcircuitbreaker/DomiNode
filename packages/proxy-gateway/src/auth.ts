@@ -72,7 +72,7 @@ async function lookupProxyToken(hash: string): Promise<CachedToken | null> {
 export async function recordProxyTokenUsage(tokenId: string, bytes: bigint, spendMusd: bigint): Promise<void> {
   try {
     const r = await proxyTokenRepo.recordUsage(tokenId, bytes, spendMusd);
-    if (!r.withinCaps) {
+    if (!r.withinCaps || r.exhausted) {
       for (const [k, v] of tokenCache) if (v.tokenId === tokenId) tokenCache.delete(k);
       log.info("proxy token cap reached", { tokenId });
     }

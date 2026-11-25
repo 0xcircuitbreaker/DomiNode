@@ -3,7 +3,7 @@ import { routedClient, type Route } from "./relay-net-test-helpers.js";
 
 const mockConnect = vi.fn();
 const mockQuery = vi.fn();
-vi.mock("../db.js", () => ({ query: (...a: unknown[]) => mockQuery(...a), getPool: () => ({ connect: () => mockConnect() }) }));
+vi.mock("../db.js", () => ({ query: (...a: unknown[]) => mockQuery(...a), queryOn: (ext: { query: (...x: unknown[]) => unknown } | undefined, ...a: unknown[]) => (ext ? ext.query(...a) : mockQuery(...a)), getPool: () => ({ connect: () => mockConnect() }) }));
 import {
   createProxyToken, listProxyTokens, revokeProxyToken, revokeAllForUser, findUsableByHash, recordUsage,
   generateProxyToken, hashProxyToken, tokenStatus, isExhausted, OPAQUE_PROXY_TOKEN_RE, ProxyTokenInputError,
@@ -82,6 +82,12 @@ describe("list / revoke / lookup", () => {
     expect(mockQuery.mock.calls[0][0]).toMatch(/user_id = \$2 AND revoked_at IS NULL/);
     expect(await revokeProxyToken(U, "nope")).toBe(false);
   });
+  it("revokeAllForUser runs on a caller transaction client when given", async () => {
+    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ id: T }] }) };
+    expect(await revokeAllForUser(U, tx as never)).toBe(1);
+    expect(tx.query.mock.calls[0][0]).toMatch(/UPDATE proxy_tokens SET revoked_at = now\(\) WHERE user_id = \$1 AND revoked_at IS NULL/);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
   it("revokeAllForUser counts rows", async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: T }, { id: U }] });
     expect(await revokeAllForUser(U)).toBe(2);
@@ -100,18 +106,23 @@ describe("list / revoke / lookup", () => {
 
 describe("recordUsage", () => {
   it("conditional update within caps", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: T }] });
-    expect(await recordUsage(T, 100n, 5n)).toEqual({ withinCaps: true });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: T, exhausted: false }] });
+    expect(await recordUsage(T, 100n, 5n)).toEqual({ withinCaps: true, exhausted: false });
     expect(mockQuery.mock.calls[0][0]).toMatch(/bytes_used \+ \$2::bigint <= COALESCE\(max_bytes/);
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
+  it("reports exhausted when usage lands exactly on a cap", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: T, exhausted: true }] });
+    expect(await recordUsage(T, 1000n, 0n)).toEqual({ withinCaps: true, exhausted: true });
+    expect(mockQuery.mock.calls[0][0]).toMatch(/bytes_used >= max_bytes/);
+  });
   it("saturates at the cap when the delta does not fit", async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
-    expect(await recordUsage(T, 10_000n, 0n)).toEqual({ withinCaps: false });
+    expect(await recordUsage(T, 10_000n, 0n)).toEqual({ withinCaps: false, exhausted: true });
     expect(mockQuery.mock.calls[1][0]).toMatch(/LEAST\(bytes_used/);
   });
   it("skips zero usage", async () => {
-    expect(await recordUsage(T, 0n, 0n)).toEqual({ withinCaps: true });
+    expect(await recordUsage(T, 0n, 0n)).toEqual({ withinCaps: true, exhausted: false });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 });

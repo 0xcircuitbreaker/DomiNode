@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as crypto from "node:crypto";
-import { adminRepo, createLogger, userRepo, refreshTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, relayErasureRepo, query as dbQuery } from "@dominusnode/shared";
+import { adminRepo, createLogger, userRepo, refreshTokenRepo, proxyTokenRepo, waitlistRepo, walletRepo, teamRepo, planRepo, referralRepo, sendWaitlistApprovalEmail, sanitizeString, hasMinRole, getProxyInternalPort, relayErasureRepo, query as dbQuery } from "@dominusnode/shared";
 import type { AdminRole, DbTxClient } from "@dominusnode/shared";
 import type { NextFunction, Request, Response } from "express";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/auth.js";
@@ -138,9 +138,11 @@ router.put("/users/:id/suspend", async (req, res) => {
       // Revoke all API keys and refresh tokens so the suspended user is immediately locked out
       const keys = await userRepo.revokeAllApiKeys(targetId, pc(c));
       const tokens = await refreshTokenRepo.revokeAllForUser(targetId, pc(c));
+      // Proxy tokens too, so unsuspending does not silently revive them
+      const proxyTokens = await proxyTokenRepo.revokeAllForUser(targetId, pc(c));
       await audit(c, req, "user_suspend", "user", targetId, {
         reason, previousStatus: targetUser?.status ?? null, newStatus: "suspended", changed,
-        revokedKeys: keys, revokedTokens: tokens,
+        revokedKeys: keys, revokedTokens: tokens, revokedProxyTokens: proxyTokens,
       });
       return { revokedKeys: keys, revokedTokens: tokens };
     });

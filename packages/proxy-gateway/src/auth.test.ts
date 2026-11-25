@@ -17,7 +17,7 @@ vi.mock("@dominusnode/shared", () => ({
     OPAQUE_PROXY_TOKEN_RE: /^dn_proxy_[A-Za-z0-9_-]{43}$/,
     hashProxyToken: () => "0".repeat(64),
     findUsableByHash: async () => null,
-    recordUsage: async () => ({ withinCaps: true }),
+    recordUsage: async () => ({ withinCaps: true, exhausted: false }),
   },
   userRepo: {
     findUserByApiKey: (...args: unknown[]) => mockFindUserByApiKeyHash(...args),

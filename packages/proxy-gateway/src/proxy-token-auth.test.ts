@@ -80,9 +80,18 @@ describe("opaque dn_proxy_ tokens", () => {
     m.findUsable.mockResolvedValueOnce(tokenRow).mockResolvedValue(null);
     m.findUserById.mockResolvedValue(user);
     expect(await verifyProxyCredential(TOKEN)).not.toBeNull();
-    m.recordUsage.mockResolvedValue({ withinCaps: false });
+    m.recordUsage.mockResolvedValue({ withinCaps: false, exhausted: true });
     await recordProxyTokenUsage(TID, 5000n, 25n);
     expect(m.recordUsage).toHaveBeenCalledWith(TID, 5000n, 25n);
+    expect(await verifyProxyCredential(TOKEN)).toBeNull();
+  });
+
+  it("drops the cache entry when usage lands exactly on a cap", async () => {
+    m.findUsable.mockResolvedValueOnce(tokenRow).mockResolvedValue(null);
+    m.findUserById.mockResolvedValue(user);
+    expect(await verifyProxyCredential(TOKEN)).not.toBeNull();
+    m.recordUsage.mockResolvedValueOnce({ withinCaps: true, exhausted: true });
+    await recordProxyTokenUsage(TID, 1000n, 0n);
     expect(await verifyProxyCredential(TOKEN)).toBeNull();
   });
 
@@ -90,7 +99,7 @@ describe("opaque dn_proxy_ tokens", () => {
     m.findUsable.mockResolvedValueOnce(tokenRow);
     m.findUserById.mockResolvedValue(user);
     await verifyProxyCredential(TOKEN);
-    m.recordUsage.mockResolvedValueOnce({ withinCaps: true });
+    m.recordUsage.mockResolvedValueOnce({ withinCaps: true, exhausted: false });
     await recordProxyTokenUsage(TID, 1n, 1n);
     expect(await verifyProxyCredential(TOKEN)).not.toBeNull();
     m.recordUsage.mockRejectedValueOnce(new Error("db down"));

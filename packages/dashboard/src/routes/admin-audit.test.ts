@@ -15,7 +15,7 @@ const { clientQuery, release, client, m, f } = vi.hoisted(() => {
   const client = { query: clientQuery, release };
   const m = {
     suspendUser: vi.fn(), reactivateUser: vi.fn(), deleteUser: vi.fn(), setAdminRole: vi.fn(),
-    findUserById: vi.fn(), revokeAllApiKeys: vi.fn(), revokeAllForUser: vi.fn(),
+    findUserById: vi.fn(), revokeAllApiKeys: vi.fn(), revokeAllForUser: vi.fn(), revokeAllProxyTokens: vi.fn(),
     findById: vi.fn(), markNotified: vi.fn(), getPendingEmails: vi.fn(), bulkNotify: vi.fn(), cancelEntry: vi.fn(),
     setUserPlan: vi.fn(), creditWallet: vi.fn(), adminCreditTeamWallet: vi.fn(),
     createPromoCode: vi.fn(), disablePromoCode: vi.fn(),
@@ -33,6 +33,7 @@ vi.mock("@dominusnode/shared", () => ({
   },
   userRepo: { findUserById: f("findUserById"), revokeAllApiKeys: f("revokeAllApiKeys") },
   refreshTokenRepo: { revokeAllForUser: f("revokeAllForUser") },
+  proxyTokenRepo: { revokeAllForUser: f("revokeAllProxyTokens") },
   waitlistRepo: {
     findById: f("findById"), markNotified: f("markNotified"), getPendingEmails: f("getPendingEmails"),
     bulkNotify: f("bulkNotify"), cancelEntry: f("cancelEntry"),
@@ -142,6 +143,7 @@ beforeEach(() => {
   m.deleteUser.mockResolvedValue(undefined);
   m.revokeAllApiKeys.mockResolvedValue(1);
   m.revokeAllForUser.mockResolvedValue(1);
+  m.revokeAllProxyTokens.mockResolvedValue(0);
   m.findById.mockResolvedValue({ id: T, email: "w@example.com", status: "pending" });
   m.markNotified.mockResolvedValue(true);
   m.getPendingEmails.mockResolvedValue([{ id: T, email: "a@example.com" }, { id: ADMIN, email: "b@example.com" }]);

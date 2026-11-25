@@ -369,8 +369,10 @@ curl -x https://country-US:dn_proxy_XXXX@proxy.example.org:8443 https://httpbin.
   finishes and **the next request is refused** (407). Concurrent sessions
   started before the cap was reached can each finish, so a cap can be exceeded
   by at most the traffic of sessions already running.
-- Revocation and expiry take effect within 5 seconds (gateway lookup cache).
-- The owner must stay active and verified; suspension refuses every token.
+- Revocation and expiry take effect within 5 seconds (gateway lookup cache)
+  for new requests; a CONNECT tunnel already open runs until it closes.
+- The owner must stay active and verified. Admin suspension refuses every
+  token and also revokes them, so lifting the suspension does not revive them.
 - At most 25 active (unrevoked, unexpired) tokens per account.
 - Legacy stateless `dn_proxy_<payload>.<hmac>` session tokens from
   `POST /api/auth/wallet/proxy-session` (they contain a `.`) keep working until

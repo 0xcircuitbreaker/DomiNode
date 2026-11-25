@@ -8,7 +8,8 @@
  * sessions cannot both pass the cap.
  */
 import * as crypto from "node:crypto";
-import { query } from "../db.js";
+import { query, queryOn } from "../db.js";
+import type { DbTxClient } from "../db.js";
 import { withTx } from "./node-credit-repo.js";
 
 export const PROXY_TOKEN_PREFIX = "dn_proxy_";
@@ -171,9 +172,9 @@ export async function revokeProxyToken(userId: string, id: string): Promise<bool
 }
 
 /** Revoke every live token of a user (admin suspend, account erasure). Returns the count. */
-export async function revokeAllForUser(userId: string): Promise<number> {
+export async function revokeAllForUser(userId: string, ext?: DbTxClient): Promise<number> {
   if (!UUID_RE.test(userId)) return 0;
-  const r = await query<{ id: string }>(
+  const r = await queryOn<{ id: string }>(ext, 
     `UPDATE proxy_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL RETURNING id`,
     [userId],
   );
@@ -200,23 +201,26 @@ export async function findUsableByHash(hash: string): Promise<ProxyToken | null>
  * Add gateway-metered usage. The conditional UPDATE succeeds only while
  * used + delta stays within each cap. When it would cross a cap, usage is
  * saturated at the cap instead, so the token is refused from the next request.
- * Returns whether the usage fitted under the caps.
+ * Returns whether the usage fitted under the caps, and whether the token is
+ * now exhausted (a cap reached exactly, or saturated).
  */
-export async function recordUsage(id: string, bytes: bigint, spendMusd: bigint): Promise<{ withinCaps: boolean }> {
-  if (!UUID_RE.test(id)) return { withinCaps: false };
+export async function recordUsage(id: string, bytes: bigint, spendMusd: bigint): Promise<{ withinCaps: boolean; exhausted: boolean }> {
+  if (!UUID_RE.test(id)) return { withinCaps: false, exhausted: true };
   const b = bytes < 0n ? 0n : bytes > MAX_TOKEN_BYTES ? MAX_TOKEN_BYTES : bytes;
   const s = spendMusd < 0n ? 0n : spendMusd > MAX_TOKEN_SPEND_MUSD ? MAX_TOKEN_SPEND_MUSD : spendMusd;
-  if (b === 0n && s === 0n) return { withinCaps: true };
-  const ok = await query<{ id: string }>(
+  if (b === 0n && s === 0n) return { withinCaps: true, exhausted: false };
+  const ok = await query<{ id: string; exhausted: boolean }>(
     `UPDATE proxy_tokens
        SET bytes_used = bytes_used + $2::bigint, spend_used_musd = spend_used_musd + $3::bigint
      WHERE id = $1
        AND bytes_used + $2::bigint <= COALESCE(max_bytes, ${MAX_TOKEN_BYTES.toString()})
        AND spend_used_musd + $3::bigint <= COALESCE(max_spend_musd, ${MAX_TOKEN_SPEND_MUSD.toString()})
-     RETURNING id`,
+     RETURNING id,
+       ((max_bytes IS NOT NULL AND bytes_used >= max_bytes)
+         OR (max_spend_musd IS NOT NULL AND spend_used_musd >= max_spend_musd)) AS exhausted`,
     [id, b.toString(), s.toString()],
   );
-  if (ok.rows.length === 1) return { withinCaps: true };
+  if (ok.rows.length === 1) return { withinCaps: true, exhausted: ok.rows[0].exhausted === true };
   await query(
     `UPDATE proxy_tokens
        SET bytes_used = LEAST(bytes_used + $2::bigint, COALESCE(max_bytes, ${MAX_TOKEN_BYTES.toString()})),
@@ -224,5 +228,5 @@ export async function recordUsage(id: string, bytes: bigint, spendMusd: bigint):
      WHERE id = $1`,
     [id, b.toString(), s.toString()],
   );
-  return { withinCaps: false };
+  return { withinCaps: false, exhausted: true };
 }
