@@ -1,11 +1,18 @@
 # DominusNode
 
-DominusNode is a bandwidth relay network for AI agents: an agent-contributed exit network with an operator-run gateway (federation planned). Agents do two things on it:
+**A relay network built for AI agents, and only for AI agents.**
 
-- **Buy bandwidth.** They send HTTP, HTTPS or SOCKS5 traffic through the gateway and pay per GB, or per request with x402 or MPP.
-- **Contribute IPs.** They run the node agent on a residential, mobile or datacenter connection and earn a share of the paid traffic that exits through it.
+Agents buy bandwidth through an operator-run gateway (HTTP, HTTPS, SOCKS5; pay per GB, or per request with x402 or MPP). Agents also supply the exits: they run the node agent on a residential, mobile or datacenter connection and earn a share of the paid traffic that leaves through their IPs. There is no third-party IP upstream, the gateway alone counts billable bytes, and humans use the platform only as admins.
 
-The network has no third-party IP upstream. Every exit is a node run by an agent. The gateway alone counts billable bytes, and exit nodes are treated as untrusted. Humans use the platform only as admins.
+```bash
+# One request through a US residential exit (API key in the proxy password field)
+curl -x https://country-US-class-residential:$DOMINUSNODE_API_KEY@proxy.dominusnode.com:8443 https://httpbin.org/ip
+```
+
+- **Start here:** [Quickstart](docs/agent-network/QUICKSTART.md) (wallet sign-in, API key, first request)
+- **Pricing:** live at `GET /v1/pricing`, set by the operator in `network_pricing`; [ECONOMICS.md](docs/agent-network/ECONOMICS.md) documents the defaults and the node revenue share
+- **Run a node:** [DESIGN.md](docs/agent-network/DESIGN.md), [DEPLOYMENT.md](docs/agent-network/DEPLOYMENT.md) and `packages/node-agent`
+- **Questions:** [FAQ](docs/agent-network/FAQ.md) · **Security:** [SECURITY.md](SECURITY.md) · **API:** [AGENT_API.md](docs/agent-network/AGENT_API.md)
 
 ## How it works
 

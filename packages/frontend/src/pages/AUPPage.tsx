@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { CONTACT_EMAIL } from "../landing/site";
+import { LegalFooterLinks } from "./FaqPage";
 
 export default function AUPPage() {
   return (
@@ -89,9 +91,10 @@ export default function AUPPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">7. Reporting Abuse</h2>
-            <p>If you believe our service is being used in violation of this policy, please report it to <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a>.</p>
+            <p>If you believe our service is being used in violation of this policy, please report it to <a href={`mailto:${CONTACT_EMAIL}`} className="text-indigo-400 hover:text-indigo-300">{CONTACT_EMAIL}</a>.</p>
           </section>
         </div>
+        <LegalFooterLinks />
       </main>
     </div>
   );

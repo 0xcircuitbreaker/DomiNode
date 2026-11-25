@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { CONTACT_EMAIL } from "../landing/site";
 
 export default function PrivacyPage() {
   return (
@@ -121,7 +122,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">11. Contact</h2>
-            <p>For privacy-related inquiries: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
+            <p>For privacy-related inquiries: <a href={`mailto:${CONTACT_EMAIL}`} className="text-indigo-400 hover:text-indigo-300">{CONTACT_EMAIL}</a></p>
           </section>
         </div>
       </main>

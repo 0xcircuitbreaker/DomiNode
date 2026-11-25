@@ -176,6 +176,7 @@ elsewhere). Meaning and required/optional status are documented in
 | `PROXY_STATS_SECRET` |  | `src/routes/account.ts`, `src/routes/admin.ts`, `src/routes/proxy-health.ts` |
 | `RECAPTCHA_SCORE_THRESHOLD` | `0.5` | `src/routes/auth.ts` |
 | `RECAPTCHA_SECRET_KEY` | `""` | `src/routes/auth.ts` |
+| `SECURITY_POLICY_URL` | `""` | `src/routes/discovery.ts` |
 | `STRIPE_WEBHOOK_IPS` |  | `src/routes/webhooks.ts`, `src/server.ts` |
 | `TRUST_PROXY` |  | `src/server.ts` |
 | `X402_BYTES_PER_REQUEST` | `10485760` | `src/routes/x402.ts` |

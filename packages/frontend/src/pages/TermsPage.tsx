@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { CONTACT_EMAIL } from "../landing/site";
+import { LegalFooterLinks } from "./FaqPage";
 
 export default function TermsPage() {
   return (
@@ -103,9 +105,10 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">12. Contact</h2>
-            <p>For questions about these terms: <a href="mailto:0xcircuitbreaker@protonmail.com" className="text-indigo-400 hover:text-indigo-300">0xcircuitbreaker@protonmail.com</a></p>
+            <p>For questions about these terms: <a href={`mailto:${CONTACT_EMAIL}`} className="text-indigo-400 hover:text-indigo-300">{CONTACT_EMAIL}</a></p>
           </section>
         </div>
+        <LegalFooterLinks />
       </main>
     </div>
   );

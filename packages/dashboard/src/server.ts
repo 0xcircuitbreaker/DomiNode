@@ -34,7 +34,7 @@ import adminKillSwitchRoutes from "./routes/admin-kill-switches.js";
 import v1Routes from "./routes/v1/index.js";
 import adminOpsAlertsRoutes from "./routes/admin-ops-alerts.js";
 import { v1ErrorCounter } from "./ops-alerts.js";
-import discoveryRoutes from "./routes/discovery.js";
+import discoveryRoutes, { resolveSecurityPolicyUrl } from "./routes/discovery.js";
 import statusPageRoutes from "./routes/status-page.js";
 import { createFederationRouter, loadDocSigner } from "./routes/federation.js";
 import { resolveBranding, securityTxtContact } from "@dominusnode/shared";
@@ -255,6 +255,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
   // Contact is config (F8); the official default only applies to an official coordinator key.
   const docSigner = loadDocSigner(process.env);
   const securityContact = resolveBranding(process.env, docSigner ? [docSigner.publicKeyHex] : []).abuseContact;
+  const securityPolicy = resolveSecurityPolicyUrl(process.env);
   app.get("/.well-known/security.txt", (_req, res) => {
     if (!securityContact) {
       res.status(404).type("text/plain").send("Not configured\n");
@@ -264,6 +265,7 @@ export function startApiServer(port: number = 3000): ReturnType<express.Express[
     res.type("text/plain").send(
       `Contact: ${securityTxtContact(securityContact)}\n` +
       `Expires: ${expires}\n` +
+      `Policy: ${securityPolicy}\n` +
       `Preferred-Languages: en\n`
     );
   });
