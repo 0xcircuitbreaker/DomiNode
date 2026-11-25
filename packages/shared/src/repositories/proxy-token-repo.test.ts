@@ -7,6 +7,7 @@ vi.mock("../db.js", () => ({ query: (...a: unknown[]) => mockQuery(...a), queryO
 import {
   createProxyToken, listProxyTokens, revokeProxyToken, revokeAllForUser, findUsableByHash, recordUsage,
   generateProxyToken, hashProxyToken, tokenStatus, isExhausted, OPAQUE_PROXY_TOKEN_RE, ProxyTokenInputError,
+  computeGrant, reserveSessionBudget, settleSessionBudget, findEndedTokenIds,
   type ProxyToken,
 } from "./proxy-token-repo.js";
 
@@ -138,5 +139,57 @@ describe("status", () => {
     expect(tokenStatus({ ...base, expiresAt: new Date(0) })).toBe("expired");
     expect(tokenStatus({ ...base, spendUsedMusd: 10n })).toBe("exhausted");
     expect(isExhausted({ ...base, maxBytes: null, maxSpendMusd: null, bytesUsed: 99n })).toBe(false);
+  });
+});
+
+describe("session-start budget reservation", () => {
+  const t = (o: Partial<ProxyToken> = {}) => ({ maxBytes: null, maxSpendMusd: null, bytesUsed: 0n, spendUsedMusd: 0n, ...o });
+  it("computeGrant takes the smaller of want, remaining bytes and bytes the remaining spend buys", () => {
+    expect(computeGrant(t(), 1000n, 500_000n)).toEqual({ bytes: 1000n, spendMusd: 1n });
+    expect(computeGrant(t({ maxBytes: 100n, bytesUsed: 40n }), 1000n, 500_000n)?.bytes).toBe(60n);
+    // 50 µUSD at $0.50/GB buys 100_000 bytes; ceil(spend) never exceeds the remainder
+    const g = computeGrant(t({ maxSpendMusd: 60n, spendUsedMusd: 10n }), 10n ** 9n, 500_000n)!;
+    expect(g).toEqual({ bytes: 100_000n, spendMusd: 50n });
+    expect(computeGrant(t({ maxBytes: 5n, bytesUsed: 5n }), 10n, 1n)).toBeNull();
+    expect(computeGrant(t({ maxSpendMusd: 5n, spendUsedMusd: 5n }), 10n, 1n)).toBeNull();
+    expect(computeGrant(t(), 0n, 1n)).toBeNull();
+  });
+  it("computeGrant for prepaid sessions reserves the paid amount or refuses", () => {
+    expect(computeGrant(t({ maxSpendMusd: 100n }), 10n, 1n, 80n)).toEqual({ bytes: 10n, spendMusd: 80n });
+    expect(computeGrant(t({ maxSpendMusd: 100n, spendUsedMusd: 30n }), 10n, 1n, 80n)).toBeNull();
+  });
+  it("reserves under a row lock with a conditional update", async () => {
+    const r = setup([
+      [/FOR UPDATE/, () => ({ rows: [row({ max_bytes: "1000", bytes_used: "900" })] })],
+      [/UPDATE proxy_tokens/, () => ({ rows: [{ id: T }] })],
+    ]);
+    expect(await reserveSessionBudget(T, 10_000n, 500_000n)).toEqual({ bytes: 100n, spendMusd: 1n });
+    const sel = r.calls.find((c) => /FOR UPDATE/.test(c.sql))!;
+    expect(sel.sql).toMatch(/revoked_at IS NULL AND expires_at > now\(\)/);
+    expect(sel.sql).not.toMatch(/\*/);
+    const upd = r.calls.find((c) => /UPDATE proxy_tokens/.test(c.sql))!;
+    expect(upd.sql).toMatch(/bytes_used \+ \$2::bigint <= COALESCE\(max_bytes/);
+    expect(upd.params.slice(1)).toEqual(["100", "1"]);
+  });
+  it("refuses a revoked/expired token or an exhausted budget without updating", async () => {
+    const r = setup([[/FOR UPDATE/, () => ({ rows: [] })]]);
+    expect(await reserveSessionBudget(T, 10n, 1n)).toBeNull();
+    expect(r.sqls().some((x) => /UPDATE proxy_tokens/.test(x))).toBe(false);
+    setup([[/FOR UPDATE/, () => ({ rows: [row({ max_bytes: "1000", bytes_used: "1000" })] })]]);
+    expect(await reserveSessionBudget(T, 10n, 1n)).toBeNull();
+    expect(await reserveSessionBudget("nope", 10n, 1n)).toBeNull();
+  });
+  it("settle replaces the grant with actual usage, floored and saturated", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ exhausted: false }] });
+    expect(await settleSessionBudget(T, { bytes: 100n, spendMusd: 5n }, 40n, 2n)).toEqual({ exhausted: false });
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/LEAST\(GREATEST\(bytes_used - \$2::bigint \+ \$3::bigint, 0\), COALESCE\(max_bytes/);
+    expect(params).toEqual([T, "100", "40", "5", "2"]);
+  });
+  it("findEndedTokenIds returns ids not live in the table", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: T }] });
+    expect(await findEndedTokenIds([T, U, "junk"])).toEqual([U]);
+    expect(mockQuery.mock.calls[0][0]).toMatch(/revoked_at IS NULL AND expires_at > now\(\)/);
+    expect(await findEndedTokenIds([])).toEqual([]);
   });
 });

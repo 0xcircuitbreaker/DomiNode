@@ -6,7 +6,7 @@ import { createLogger, killSwitches, planRepo, resolveRequestId, runWithRequestI
 import type { ExitClass, KillSwitchBlock } from "@dominusnode/shared";
 import { checkAgenticWalletPolicy } from "./wallet-policy.js";
 import type { Duplex } from "node:stream";
-import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, UNSUPPORTED_TARGETING_CODE, type AuthResult } from "./auth.js";
+import { authenticateRequest, parseProxyOptions, unsupportedTargetingMessage, forgetProxyToken, UNSUPPORTED_TARGETING_CODE, type AuthResult } from "./auth.js";
 import { checkBalance, checkTeamBalance } from "./balance-check.js";
 import { bindTunnelLifecycle } from "./tunnel-lifecycle.js";
 import { attachByteCounters, capReadable, type ByteCounter } from "./counting-stream.js";
@@ -863,6 +863,8 @@ async function handleRequest(
     if (msg.includes("Insufficient balance")) {
       clientRes.writeHead(402, { "Content-Type": "application/json", "X-DominusNode-Error": "INSUFFICIENT_BALANCE", "Cache-Control": "no-store" });
       clientRes.end(buildAuthenticated402Body());
+    } else if (msg.includes("Proxy token budget")) {
+      sendError(clientRes, 403, "PROXY_TOKEN_EXHAUSTED", "Proxy token byte or spend cap reached (budget may be held by open sessions)");
     } else if (msg.includes("bandwidth limit")) {
       sendError(clientRes, 403, "BANDWIDTH_LIMIT_EXCEEDED", "Monthly bandwidth limit exceeded. Upgrade your plan at the Dominus Node dashboard.");
     } else if (msg.includes("spend cap")) {
@@ -1131,6 +1133,8 @@ async function handleConnect(
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("Insufficient balance")) {
       safeSocketWrite(clientSocket, buildAuthenticated402ConnectResponse());
+    } else if (msg.includes("Proxy token budget")) {
+      safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: PROXY_TOKEN_EXHAUSTED\r\n\r\n");
     } else if (msg.includes("bandwidth limit")) {
       safeSocketWrite(clientSocket, "HTTP/1.1 403 Forbidden\r\nX-DominusNode-Error: BANDWIDTH_LIMIT_EXCEEDED\r\n\r\n");
     } else if (msg.includes("spend cap")) {
@@ -1326,7 +1330,7 @@ async function handleX402ConnectTunnel(
 // ─── Server bootstrap ────────────────────────────────────────────────
 
 import { getStats, getPrometheusMetrics } from "./stats.js";
-import { terminateUserSessions } from "./session-manager.js";
+import { terminateUserSessions, terminateProxyTokenSessions } from "./session-manager.js";
 
 export interface ProxyServerOptions {
   /** Serve the proxy over TLS ("https proxy"): Proxy-Authorization never crosses the wire in clear. */
@@ -1414,8 +1418,11 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
       return;
     }
 
-    // Internal endpoint: terminate all sessions for a user (called by dashboard on admin suspend)
-    if (req.url?.startsWith("/internal/terminate-sessions/") && req.method === "POST") {
+    // Internal endpoints: terminate all sessions for a user (admin suspend,
+    // account deletion) or for one dn_proxy_ token (token revoke).
+    const terminateTokenPath = "/internal/terminate-token-sessions/";
+    const isTokenTerminate = req.url?.startsWith(terminateTokenPath) === true;
+    if ((isTokenTerminate || req.url?.startsWith("/internal/terminate-sessions/")) && req.method === "POST") {
       const remoteIp = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
       const isLoopback = remoteIp === "127.0.0.1" || remoteIp === "::1";
       if (!isLoopback) {
@@ -1432,7 +1439,25 @@ export async function startProxyServer(port: number, relay: RelayRuntime, opts: 
           return;
         }
       }
-      const userId = req.url.replace("/internal/terminate-sessions/", "");
+      if (isTokenTerminate) {
+        const tokenId = (req.url ?? "").slice(terminateTokenPath.length).toLowerCase();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(tokenId)) {
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end("Invalid token ID");
+          return;
+        }
+        forgetProxyToken(tokenId);
+        terminateProxyTokenSessions(tokenId).then((count) => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ terminated: count }));
+        }).catch((err) => {
+          log.error("token session termination failed", { tokenId, error: err instanceof Error ? err.message : String(err) });
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end("Internal error");
+        });
+        return;
+      }
+      const userId = (req.url ?? "").replace("/internal/terminate-sessions/", "");
       if (!/^[0-9a-f-]{36}$/i.test(userId)) {
         res.writeHead(400, { "Content-Type": "text/plain" });
         res.end("Invalid user ID");

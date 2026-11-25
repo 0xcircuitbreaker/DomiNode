@@ -1,12 +1,14 @@
 import { usageRepo, walletRepo, planRepo, teamRepo, agenticWalletRepo, policyRepo, tierRepo, relayChargeRepo, relaySettleRetryRepo, sessionRecoveryRepo, createLogger } from "@dominusnode/shared";
-import type { Plan, NodeIpClass } from "@dominusnode/shared";
+import type { Plan, NodeIpClass, proxyTokenRepo } from "@dominusnode/shared";
 import { RELAY_BYTES_PER_GB, isClassDowngrade } from "@dominusnode/shared";
 import { recordRequesterSpend, reserveRequesterSpend, releaseRequesterSpend, reserveRequesterShared } from "./policy-enforcer.js";
 import { invalidateBalanceCache, invalidateTeamBalanceCache } from "./balance-check.js";
 import { recordBytes, recordSessionStart } from "./stats.js";
 import type { ByteCounter } from "./counting-stream.js";
 import { getUserConnCount } from "./connection-tracker.js";
-import { recordProxyTokenUsage } from "./auth.js";
+import { recordProxyTokenUsage, reserveProxyTokenBudget, settleProxyTokenBudget } from "./auth.js";
+
+type TokenGrant = proxyTokenRepo.TokenGrant;
 
 const log = createLogger("proxy:session");
 
@@ -74,6 +76,8 @@ interface ActiveSession {
   prepaid?: { rail: "x402" | "mpp"; paidMusd: bigint };
   /** In-flight spend held against the daily cap until settle/abort. */
   inflightMusd?: bigint;
+  /** dn_proxy_ token budget reserved at start; the stream is cut at grant.bytes. */
+  tokenGrant?: TokenGrant | null;
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -560,7 +564,13 @@ export async function startSession(
   await reserveRequesterShared(userId, inflightMusd);
 
   let sessionId: string;
+  let tokenGrant: TokenGrant | null = null;
   try {
+  // dn_proxy_ token: reserve this session's share of the token's remaining
+  // budget before any money moves; the byte cap below is cut to the grant.
+  if (relay.proxyTokenId) {
+    tokenGrant = await reserveProxyTokenBudget(relay.proxyTokenId, maxBytesForReservation(reservationCentsFor(pricePerGbMusd), pricePerGbMusd), pricePerGbMusd);
+  }
   if (agenticWalletId) {
     // Agentic wallet: reserve within its balance, per-session spending limit
     // and remaining daily budget (incl. in-flight reservations), under its row lock.
@@ -646,6 +656,7 @@ export async function startSession(
     pricePerGbMusd,
     snapshot,
     inflightMusd,
+    tokenGrant,
   };
   try {
     await persistRecovery(newSession);
@@ -657,6 +668,7 @@ export async function startSession(
   activeSessions.set(sessionId, newSession);
   } catch (err) {
     releaseRequesterSpend(userId, inflightMusd);
+    if (tokenGrant && relay.proxyTokenId) await settleProxyTokenBudget(relay.proxyTokenId, tokenGrant, 0n, 0n);
     throw err;
   }
 
@@ -664,7 +676,9 @@ export async function startSession(
   // Paid sessions: cap at exactly what the reservation covers (no overrun headroom,
   // so settlement is never partial and the node is paid for every byte it carried)
   {
-    counter.maxBytes = Math.max(maxBytesForReservation(reservedCents, pricePerGbMusd), 1); // 0 would mean unlimited
+    const walletBytes = maxBytesForReservation(reservedCents, pricePerGbMusd);
+    const capBytes = tokenGrant && tokenGrant.bytes < BigInt(walletBytes) ? Number(tokenGrant.bytes) : walletBytes;
+    counter.maxBytes = Math.max(capBytes, 1); // 0 would mean unlimited
     counter.onLimitExceeded = () => {
       log.warn("session byte limit exceeded, terminating", { sessionId, userId, maxBytes: counter.maxBytes });
       endSession(sessionId).catch(() => {});
@@ -722,11 +736,17 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
   if (activeSessions.size >= MAX_ACTIVE_SESSIONS) throw new Error("Server at capacity. Please try again later.");
   if (!reserveRequesterSpend(i.userId, i.paidMusd)) throw new Error("Daily spend cap reached");
   await reserveRequesterShared(i.userId, i.paidMusd);
+  const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
+  let tokenGrant: TokenGrant | null = null;
   let dbSession;
   try {
+    if (i.relay.proxyTokenId) {
+      tokenGrant = await reserveProxyTokenBudget(i.relay.proxyTokenId, Math.min(paidBytes, i.maxBytes), i.quotedPricePerGbMusd, i.paidMusd);
+    }
     dbSession = await usageRepo.createRelaySession(i.userId, i.relay.nodeId, i.relay.destPort);
   } catch (err) {
     releaseRequesterSpend(i.userId, i.paidMusd);
+    if (tokenGrant && i.relay.proxyTokenId) await settleProxyTokenBudget(i.relay.proxyTokenId, tokenGrant, 0n, 0n);
     throw err;
   }
   const sessionId = dbSession.id;
@@ -748,13 +768,14 @@ export async function startPrepaidSession(i: PrepaidSessionInput): Promise<strin
     snapshot,
     prepaid: { rail: i.rail, paidMusd: i.paidMusd },
     inflightMusd: i.paidMusd,
+    tokenGrant,
   };
   // No recovery payload yet: it is stored once the payment is captured
   // (confirmPrepaidPayment), so a crash before capture never settles a charge.
   openPaymentGate(sessionId);
   activeSessions.set(sessionId, newSession);
-  const paidBytes = maxBytesForPrepaid(i.paidMusd, i.quotedPricePerGbMusd);
-  i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes)); // 0 would mean unlimited
+  const tokenBytes = tokenGrant ? (tokenGrant.bytes > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(tokenGrant.bytes)) : Number.MAX_SAFE_INTEGER;
+  i.counter.maxBytes = Math.max(1, Math.min(paidBytes, i.maxBytes, tokenBytes)); // 0 would mean unlimited
   i.counter.onLimitExceeded = () => {
     log.warn("prepaid session byte cap reached", { sessionId, maxBytes: i.counter.maxBytes });
     endSession(sessionId).catch(() => {});
@@ -795,6 +816,7 @@ export async function abortPrepaidSession(sessionId: string): Promise<boolean> {
   if (!activeSessions.delete(sessionId)) return false;
   sessionDestroyCallbacks.delete(sessionId);
   releaseRequesterSpend(session.userId, session.inflightMusd ?? 0n);
+  await releaseTokenGrant(session);
   try {
     await usageRepo.endSession(sessionId, 0, "error");
   } catch (err) {
@@ -814,6 +836,13 @@ function readNodeBytes(relay: RelayBinding): bigint | null {
     return v != null && v >= 0n && v <= 1_099_511_627_776n ? v : null;
   } catch {
     return null;
+  }
+}
+
+/** Return a session's whole token reservation (it ended without a charge). */
+async function releaseTokenGrant(session: ActiveSession): Promise<void> {
+  if (session.relay.proxyTokenId && session.tokenGrant) {
+    await settleProxyTokenBudget(session.relay.proxyTokenId, session.tokenGrant, 0n, 0n);
   }
 }
 
@@ -880,6 +909,7 @@ async function settleSession(sessionId: string): Promise<void> {
       paymentGates.delete(sessionId);
       sessionDestroyCallbacks.delete(sessionId);
       releaseRequesterSpend(session.userId, session.inflightMusd ?? 0n);
+      await releaseTokenGrant(session);
       try { await usageRepo.endSession(sessionId, 0, "error"); } catch { /* best effort */ }
       log.warn("prepaid session ended before payment capture; closed without charge", { sessionId });
       return;
@@ -896,7 +926,10 @@ async function settleSession(sessionId: string): Promise<void> {
   }
 
   // Scoped dn_proxy_ token caps: count gateway-metered bytes and their price.
-  if (session.relay.proxyTokenId && totalBytes > 0) {
+  // The start-time reservation is replaced by the metered usage (and its unused part returned).
+  if (session.relay.proxyTokenId && session.tokenGrant) {
+    void settleProxyTokenBudget(session.relay.proxyTokenId, session.tokenGrant, BigInt(totalBytes), proxyTokenSpendMusd(session, totalBytes));
+  } else if (session.relay.proxyTokenId && totalBytes > 0) {
     void recordProxyTokenUsage(session.relay.proxyTokenId, BigInt(totalBytes), proxyTokenSpendMusd(session, totalBytes));
   }
 
@@ -1053,6 +1086,40 @@ async function endNodeSessions(nodeId: string, match: (s: ActiveSession) => bool
   }
   if (ended > 0) log.warn("ended in-flight sessions after egress downgrade", { nodeId, to: cls, ended });
   return ended;
+}
+
+/**
+ * Forcibly end every open session authenticated with one dn_proxy_ token
+ * (revoked, or ended by the API). Bytes carried so far settle as usual.
+ */
+export async function terminateProxyTokenSessions(tokenId: string): Promise<number> {
+  const ids: string[] = [];
+  for (const [id, s] of activeSessions) {
+    if (s.relay.proxyTokenId === tokenId) ids.push(id);
+  }
+  let ended = 0;
+  for (const sessionId of ids) {
+    try {
+      await endSession(sessionId);
+      ended++;
+    } catch (err) {
+      log.error("token session termination failed", { sessionId, error: err instanceof Error ? err.message : String(err) });
+    }
+    const destroyFn = sessionDestroyCallbacks.get(sessionId);
+    if (destroyFn) {
+      try { destroyFn(); } catch { /* best effort */ }
+      sessionDestroyCallbacks.delete(sessionId);
+    }
+  }
+  if (ended > 0) log.info("terminated proxy token sessions", { tokenId, terminated: ended });
+  return ended;
+}
+
+/** Distinct dn_proxy_ token ids with an open session on this instance. */
+export function liveProxyTokenIds(): string[] {
+  const ids = new Set<string>();
+  for (const s of activeSessions.values()) if (s.relay.proxyTokenId) ids.add(s.relay.proxyTokenId);
+  return [...ids];
 }
 
 /**
