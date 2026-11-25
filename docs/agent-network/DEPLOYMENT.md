@@ -947,12 +947,14 @@ the INPUT chain, so filter in `DOCKER-USER`). Match only the published
 (DNAT'ed) flow with conntrack: a plain `--dport 5432` rule also matches the
 api/migrate -> postgres traffic on the internal Docker bridge whenever
 `br_netfilter` is loaded (`net.bridge.bridge-nf-call-iptables=1`), and the
-coordinator loses its own database. The installer prints these rules for your
-`DB_WG_BIND`:
+coordinator loses its own database. `--ctdir ORIGINAL` is required too: reply
+packets of the DNAT'ed connection also carry `--ctstate DNAT`, and without it
+the rules drop Postgres replies (the gateway then cannot reach the DB). The
+installer prints these rules for your `DB_WG_BIND`:
 
 ```bash
-sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdstport 5432 ! -i wg0 -j DROP
-sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctorigdstport 5432 ! -s 10.66.0.2 -j DROP
+sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 5432 ! -i wg0 -j DROP
+sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 5432 ! -s 10.66.0.2 -j DROP
 ```
 
 After adding them, confirm the api still reaches Postgres:
@@ -1047,6 +1049,11 @@ Admin live gateway stats (`PROXY_INTERNAL_HOST`) are not wired across the split.
 
 The order for bringing up a fresh gateway VPS (`gateway.example.org` below; the
 coordinator stays at home). Hostnames are placeholders.
+
+Prerequisites on **both** boxes (ROLE=gateway included): Docker with compose,
+`openssl`, and **Node.js >= 18 on the host**: `install.sh` runs `node` itself
+(signing-key generation and the pepper/JWT/probe check values) and refuses to
+start without it; `preflight.sh` checks it too.
 
 1. **DNS.** Point `relay.example.org` and `proxy.example.org` (A records) at
    the VPS's public IPv4. Both must be **DNS only** (grey cloud) in Cloudflare:

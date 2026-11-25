@@ -567,7 +567,8 @@ describe("self-host roles and Cloudflare Tunnel", () => {
       );
       const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
       expect(env).toMatch(/^ACME_CHALLENGE=dns-cloudflare$/m);
-      expect(env).toMatch(/^CLOUDFLARE_DNS_TOKEN_FILE=\.\/selfhost\/cloudflare-dns\.token$/m);
+      // Stored absolute: compose fails "undefined volume" on a relative source.
+      expect(env).toMatch(/^CLOUDFLARE_DNS_TOKEN_FILE=\/.*\/selfhost\/cloudflare-dns\.token$/m);
       expect(tree(tmp)).not.toContain(DNS_TOKEN);
       expect(fs.readFileSync(MAIN, "utf8")).not.toContain(DNS_TOKEN);
     } finally {
@@ -1105,6 +1106,99 @@ describe("DOCKER-USER Postgres rules (br_netfilter safe)", () => {
         expect(l, f).not.toMatch(/--dport 5432/);
         expect(l, f).toMatch(/--ctstate DNAT --ctorigdst.*port 5432|--ctstate DNAT.*--ctorigdstport 5432/);
       }
+    }
+  });
+});
+
+describe("operator deploy feedback (coordinator + gateway VPS split)", () => {
+  const PREFLIGHT = path.join(ROOT, "scripts/selfhost/preflight.sh");
+
+  it("every DOCKER-USER 5432 rule matches only the original direction of the DNAT flow", () => {
+    for (const f of ["docs/agent-network/DEPLOYMENT.md", "scripts/selfhost/install.sh"]) {
+      const lines = fs.readFileSync(path.join(ROOT, f), "utf8").split("\n").filter((l) => l.includes("DOCKER-USER") && l.includes("5432") && l.includes("iptables"));
+      expect(lines.length, f).toBeGreaterThan(0);
+      for (const l of lines) {
+        expect(l, f).toContain("--ctstate DNAT");
+        expect(l, f).toContain("--ctdir ORIGINAL");
+      }
+    }
+  });
+
+  it.runIf(has("openssl", ["version"]))("stores a relative CLOUDFLARE_DNS_TOKEN_FILE as an absolute path", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-selfhost-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "scripts/selfhost"), { recursive: true });
+      fs.mkdirSync(path.join(tmp, "selfhost"), { recursive: true });
+      fs.copyFileSync(INSTALL, path.join(tmp, "scripts/selfhost/install.sh"));
+      fs.copyFileSync(path.join(ROOT, "scripts/gen-coord-key.mjs"), path.join(tmp, "scripts/gen-coord-key.mjs"));
+      fs.writeFileSync(path.join(tmp, "scripts/update-asn-db.sh"), "#!/usr/bin/env bash\nexit 1\n");
+      fs.writeFileSync(path.join(tmp, "selfhost/cloudflare-dns.token"), "tok\n", { mode: 0o600 });
+      const run = (file: string) => spawnSync("bash", [path.join(tmp, "scripts/selfhost/install.sh"), "--yes", "--no-start"], {
+        cwd: tmp,
+        env: { ...process.env, DOMINUSNODE_HOSTNAMES: "node.example.org", TLS_MODE: "auto", OPERATOR_CONTACT: "ops@example.org", SKIP_ASN_DB: "1", ACME_CHALLENGE: "dns-cloudflare", CLOUDFLARE_DNS_TOKEN_FILE: file },
+        encoding: "utf8",
+      });
+      const r = run("./selfhost/cloudflare-dns.token");
+      expect(r.status, r.stderr).toBe(0);
+      const env = fs.readFileSync(path.join(tmp, ".env"), "utf8");
+      const v = env.match(/^CLOUDFLARE_DNS_TOKEN_FILE=(.*)$/m)?.[1] ?? "";
+      expect(path.isAbsolute(v)).toBe(true);
+      expect(fs.realpathSync(v)).toBe(fs.realpathSync(path.join(tmp, "selfhost/cloudflare-dns.token")));
+      const missing = run("./selfhost/nope.token");
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toMatch(/Cloudflare DNS token file not found/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("install.sh checks for Node.js with a minimum version, and the docs list it for ROLE=gateway", () => {
+    const sh = fs.readFileSync(INSTALL, "utf8");
+    expect(sh).toMatch(/NODE_MIN_MAJOR=18/);
+    expect(sh.indexOf("NODE_MIN_MAJOR=18")).toBeLessThan(sh.indexOf("gen-coord-key.mjs\" \""));
+    const doc = fs.readFileSync(path.join(ROOT, "docs/agent-network/DEPLOYMENT.md"), "utf8");
+    expect(doc).toMatch(/Node\.js >= 18 on the host/);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-nonode-"));
+    try {
+      // PATH with bash but a node that reports v16.
+      fs.writeFileSync(path.join(tmp, "node"), "#!/bin/sh\ncase \"$1\" in -p) echo 16 ;; *) echo v16.0.0 ;; esac\n", { mode: 0o755 });
+      const r = spawnSync("bash", [INSTALL, "--yes", "--no-start"], { env: { ...process.env, PATH: `${tmp}:${process.env.PATH}` }, encoding: "utf8" });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/Node\.js >= 18 is required on the host \(found v16\.0\.0\)/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  for (const owner of ["dockerd", "docker-proxy"]) {
+    it(`preflight treats a stack port held by ${owner} as the stack's own`, () => {
+      const bin = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
+      try {
+        const line = (p: number) => `LISTEN 0 4096 0.0.0.0:${p} 0.0.0.0:* users:((\\"${owner}\\",pid=42,fd=7))`;
+        fs.writeFileSync(path.join(bin, "ss"), `#!/usr/bin/env bash\n[ "$1" = -Hltnp ] && printf '%s\\n' ${[80, 443, 8443, 1443, 9443].map((p) => `"${line(p)}"`).join(" ")}\nexit 0\n`, { mode: 0o755 });
+        const r = spawnSync("bash", [PREFLIGHT], {
+          env: { PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", ROLE: "gateway", PREFLIGHT_EUID: "0", PREFLIGHT_CF_FETCH: "0", PREFLIGHT_MIN_DISK_GB: "0" },
+          encoding: "utf8",
+        });
+        for (const p of [80, 443, 8443, 1443, 9443]) expect(r.stdout).toContain(`tcp/${p} held by the stack`);
+        expect(r.stdout).not.toMatch(/held by another process/);
+      } finally {
+        fs.rmSync(bin, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("preflight still fails a stack port held by an unrelated process", () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "dn-pre-"));
+    try {
+      fs.writeFileSync(path.join(bin, "ss"), `#!/usr/bin/env bash\n[ "$1" = -Hltnp ] && echo 'LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=9,fd=6))'\nexit 0\n`, { mode: 0o755 });
+      const r = spawnSync("bash", [PREFLIGHT], {
+        env: { PATH: `${bin}:${process.env.PATH}`, PUBLIC_IP: "203.0.113.10", ROLE: "gateway", PREFLIGHT_EUID: "0", PREFLIGHT_CF_FETCH: "0", PREFLIGHT_MIN_DISK_GB: "0" },
+        encoding: "utf8",
+      });
+      expect(r.stdout).toMatch(/FAIL  ports tcp\/443 held by another process: nginx/);
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true });
     }
   });
 });

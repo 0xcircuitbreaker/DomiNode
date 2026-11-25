@@ -10,7 +10,9 @@
 #          AAAA records must not be Cloudflare either, and one that is not this
 #          host's IPv6 is a warning. Cloudflare ranges are fetched at runtime
 #          (cloudflare.com/ips-v4, ips-v6); a built-in list is the fallback.
-#   ports  TCP 80 443 8443 1443 9443 free or held by Docker/Caddy, allowed by ufw
+#   ports  TCP 80 443 8443 1443 9443 free or held by Docker/Caddy (docker-proxy,
+#          or dockerd itself with userland-proxy: false), allowed by ufw
+#   node   Node.js >= 18 on the host (install.sh runs it for every ROLE)
 #   reach  optional external check: PREFLIGHT_REACH_URL (https, with {host}
 #          and {port} placeholders) is fetched per port; 2xx = reachable
 #   wg     WireGuard interface up with a recent handshake (< 180 s); with
@@ -186,6 +188,15 @@ for pair in "RELAY_HOST:$RELAY" "PROXY_HOST:$PROXYH"; do
   done
 done
 
+# ─── node ──────────────────────────────────────────────────────────
+if has node; then
+  node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  case "$node_major" in ''|*[!0-9]*) node_major=0 ;; esac
+  if [ "$node_major" -ge 18 ]; then ok node "Node.js $(node --version)"; else fail node "Node.js >= 18 required on the host (install.sh), found $(node --version 2>/dev/null || echo unknown)"; fi
+else
+  fail node "Node.js >= 18 is not installed: install.sh needs it on the host for ROLE=gateway too"
+fi
+
 # ─── ports ──────────────────────────────────────────────────────────
 [ "$IS_ROOT" = 1 ] || warn root "not running as root: listener owners, WireGuard handshakes and ufw rules may not be visible; run with sudo for a full check"
 LISTEN=""
@@ -199,7 +210,7 @@ for port in 80 443 8443 1443 9443; do
   line="$(printf '%s\n' "$LISTEN" | awk -v p=":$port" '$4 ~ p"$"' | head -n1)"
   if [ -z "$line" ]; then
     ok ports "tcp/$port free"
-  elif printf '%s' "$line" | grep -Eq 'docker-proxy|caddy|node'; then
+  elif printf '%s' "$line" | grep -Eq '"(docker-proxy|dockerd|caddy|node)"'; then
     ok ports "tcp/$port held by the stack"
   elif ! printf '%s' "$line" | grep -q 'users:(('; then
     warn ports "tcp/$port in use by an unknown process (owner not visible; run as root to check it is the stack)"

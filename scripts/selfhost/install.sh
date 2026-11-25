@@ -52,7 +52,13 @@ done
 
 die() { echo "install: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
-need node
+# Every role (ROLE=gateway included) runs Node.js on the host: key generation
+# (scripts/gen-coord-key.mjs) and the pepper/JWT/probe check values.
+NODE_MIN_MAJOR=18
+command -v node >/dev/null 2>&1 || die "Node.js >= $NODE_MIN_MAJOR is required on the host (every ROLE, gateway included; DEPLOYMENT.md prerequisites)"
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+case "$NODE_MAJOR" in ''|*[!0-9]*) NODE_MAJOR=0 ;; esac
+[ "$NODE_MAJOR" -ge "$NODE_MIN_MAJOR" ] || die "Node.js >= $NODE_MIN_MAJOR is required on the host (found $(node --version 2>/dev/null || echo unknown))"
 need openssl
 if [ "$NO_START" -eq 0 ]; then need docker; fi
 
@@ -190,8 +196,22 @@ if [ "$ACME" = dns-cloudflare ]; then
   DNS_DEFAULT="${CLOUDFLARE_DNS_TOKEN_FILE:-$(env_get CLOUDFLARE_DNS_TOKEN_FILE)}"
   DNS_FILE="$(ask "Cloudflare DNS API token file (mode 0600)" "${DNS_DEFAULT:-}")"
   [ -n "$DNS_FILE" ] || die "ACME_CHALLENGE=dns-cloudflare needs CLOUDFLARE_DNS_TOKEN_FILE: $DNS_TOKEN_HELP"
+  # Compose reads this as a bind-mount source: a relative path is resolved
+  # against the compose file, not the caller, and fails as "undefined volume".
+  # Store it absolute (relative to the current directory, else the repo root).
+  case "$DNS_FILE" in
+    /*) ;;
+    *) if [ -e "$PWD/$DNS_FILE" ]; then DNS_FILE="$PWD/$DNS_FILE"; else DNS_FILE="$ROOT/$DNS_FILE"; fi ;;
+  esac
   check_token_file "Cloudflare DNS token file" CLOUDFLARE_DNS_TOKEN_FILE "$DNS_FILE"
-  if [ -n "$CF_FILE" ] && [ "$DNS_FILE" = "$CF_FILE" ]; then
+  [ -r "$DNS_FILE" ] || die "Cloudflare DNS token file is not readable: $DNS_FILE"
+  DNS_FILE="$(cd "$(dirname "$DNS_FILE")" && pwd -P)/$(basename "$DNS_FILE")"
+  CF_ABS=""
+  if [ -n "$CF_FILE" ]; then
+    case "$CF_FILE" in /*) CF_ABS="$CF_FILE" ;; *) CF_ABS="$ROOT/$CF_FILE" ;; esac
+    CF_ABS="$(cd "$(dirname "$CF_ABS")" 2>/dev/null && pwd -P)/$(basename "$CF_ABS")"
+  fi
+  if [ -n "$CF_ABS" ] && [ "$DNS_FILE" = "$CF_ABS" ]; then
     die "CLOUDFLARE_DNS_TOKEN_FILE must differ from CLOUDFLARE_TUNNEL_TOKEN_FILE (separate tokens)"
   fi
 fi
@@ -259,8 +279,8 @@ if [ "$ROLE_SEL" = coordinator ]; then
     # (conntrack) so the api/migrate -> postgres bridge traffic is untouched
     # when br_netfilter is loaded.
     echo "Restrict Postgres to the gateway over wg0 (then persist them):"
-    echo "  sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdst $DB_WG --ctorigdstport 5432 ! -i wg0 -j DROP"
-    echo "  sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctorigdst $DB_WG --ctorigdstport 5432 ! -s <gateway wg address> -j DROP"
+    echo "  sudo iptables -I DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdst $DB_WG --ctorigdstport 5432 ! -i wg0 -j DROP"
+    echo "  sudo iptables -I DOCKER-USER -i wg0 -p tcp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdst $DB_WG --ctorigdstport 5432 ! -s <gateway wg address> -j DROP"
     # Docker must start after wg0, or the Postgres bind fails at boot.
     if [ "$NO_START" -eq 0 ] && [ -d /run/systemd/system ]; then
       dropin=/etc/systemd/system/docker.service.d/10-after-wg.conf
